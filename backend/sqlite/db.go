@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -15,22 +17,23 @@ import (
 )
 
 type DB struct {
-	W *sql.DB
-	R *sql.DB
+	W      *sql.DB
+	R      *sql.DB
+	logger *slog.Logger
 }
 
 // Close closes both the write and read connections to the SQLite database.
 //
 // The returned error support Unwrap() []error to retrieve the underlying errors from closing the write and read connections.
 func (db *DB) Close() error {
-	wErr := db.W.Close()
 	rErr := db.R.Close()
+	wErr := db.W.Close()
 
 	if wErr != nil {
-		return fmt.Errorf("failed to close write connection: %w", wErr)
+		wErr = fmt.Errorf("failed to close write connection: %w", wErr)
 	}
 	if rErr != nil {
-		return fmt.Errorf("failed to close read connection: %w", rErr)
+		rErr = fmt.Errorf("failed to close read connection: %w", rErr)
 	}
 	return errors.Join(wErr, rErr)
 }
@@ -61,7 +64,7 @@ func (db *DB) InTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 
 // dsn returns the Data Source Name (DSN) for connecting to a SQLite database at the given path.
 // The write parameter determines whether the DSN is for a read-write connection (true) or a read-only connection (false).
-func dsn(path string, write bool) string {
+func dsn(path string, write bool) (string, error) {
 	params := []string{
 		"_journal=WAL",
 		"_fk=on",
@@ -78,23 +81,34 @@ func dsn(path string, write bool) string {
 		params = append(params, "_txlock=deferred")
 	}
 
-	p := filepath.ToSlash(path)
-	if p[0] != '/' {
-		p = "/" + p
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path for %q: %w", path, err)
 	}
 
 	url := url.URL{
 		Scheme:   "file",
-		Path:     p,
+		Path:     filepath.ToSlash(abs),
 		RawQuery: strings.Join(params, "&"),
 	}
 
-	return url.String()
+	return url.String(), nil
 }
 
 // Given the path to the SQLite database, open a connection to it and return the *sql.DB object for both read and write operations.
-func Open(ctx context.Context, path string) (*DB, error) {
-	w, err := sql.Open("sqlite3", dsn(path, true))
+func Open(ctx context.Context, path string, logger *slog.Logger) (*DB, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger = logger.With("component", "sqlite")
+
+	writeDSN, err := dsn(path, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build write DSN: %w", err)
+	}
+	logger.Debug("Opening write connection", "dsn", writeDSN)
+
+	w, err := sql.Open("sqlite3", writeDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open write connection: %w", err)
 	}
@@ -108,7 +122,14 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping write connection: %w", err)
 	}
 
-	r, err := sql.Open("sqlite3", dsn(path, false))
+	readDSN, err := dsn(path, false)
+	if err != nil {
+		w.Close()
+		return nil, fmt.Errorf("failed to build read DSN: %w", err)
+	}
+	logger.Debug("Opening read connection", "dsn", readDSN, "readPoolSize", config.ReadPoolSize)
+
+	r, err := sql.Open("sqlite3", readDSN)
 	if err != nil {
 		w.Close()
 		return nil, fmt.Errorf("failed to open read connection: %w", err)
@@ -123,5 +144,5 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping read connection: %w", err)
 	}
 
-	return &DB{W: w, R: r}, nil
+	return &DB{W: w, R: r, logger: logger}, nil
 }

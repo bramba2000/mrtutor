@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bramba2000/mrtutor/backend/config"
+	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
 
 var isShuttingDown atomic.Bool
@@ -21,6 +22,18 @@ func main() {
 
 	logger := newLogger()
 	logger.Debug("Starting bootstrap")
+
+	db, err := sqlite.Open(rootCtx, config.DatabaseFile, logger)
+	if err != nil {
+		logger.Error("Failed to open database", "error", err)
+		return
+	}
+	defer func() {
+		err := db.Close()
+		if err != nil {
+			logger.Error("Failed to close database", "error", err)
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
@@ -39,8 +52,8 @@ func main() {
 	logger.Debug("Readiness probe drained")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
-	err := srv.Shutdown(shutdownCtx)
 
+	err = srv.Shutdown(shutdownCtx)
 	if err != nil {
 		logger.Error("Error during shutdown, forcing exit", "error", err)
 		time.Sleep(config.ShutdownHardTimeout)
@@ -60,7 +73,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func newLogger() *slog.Logger {
 	var handler slog.Handler
 	options := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: config.LogLevel,
 	}
 	if config.LogFile != "" {
 		logFile, err := os.OpenFile(config.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
