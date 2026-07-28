@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  run:
+    desc: "Run the backend process"
+    cmds:
+      - go run ./cmd/api
+    silent: true
