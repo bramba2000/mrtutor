@@ -7,4 +7,6 @@ tasks:
     desc: "Run the backend process"
     cmds:
       - go run ./cmd/api
+    env:
+        LOG_LEVEL: -4
     silent: true
