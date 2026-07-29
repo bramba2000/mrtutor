@@ -28,13 +28,12 @@ func main() {
 		logger.Error("Failed to open database", "error", err)
 		return
 	}
-	defer func() {
-		err := db.Close()
-		if err != nil {
-			logger.Error("Failed to close database", "error", err)
-		}
-	}()
-
+	defer closeDatabase(db, logger)
+	err = db.RunEmbeddedMigrations(rootCtx)
+	if err != nil {
+		logger.Error("Failed to run migrations", "error", err)
+		return
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 
@@ -58,6 +57,8 @@ func main() {
 		logger.Error("Error during shutdown, forcing exit", "error", err)
 		time.Sleep(config.ShutdownHardTimeout)
 	}
+
+	closeDatabase(db, logger)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -92,4 +93,11 @@ func newLogger() *slog.Logger {
 		handler = slog.NewTextHandler(os.Stderr, options)
 	}
 	return slog.New(handler)
+}
+
+func closeDatabase(db *sqlite.DB, logger *slog.Logger) {
+	err := db.Close()
+	if err != nil {
+		logger.Error("Failed to close database", "error", err)
+	}
 }

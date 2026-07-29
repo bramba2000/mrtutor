@@ -1,8 +1,10 @@
 package sqlite_test
 
 import (
+	"log/slog"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
@@ -48,6 +50,42 @@ func TestClose(t *testing.T) {
 
 		if err := db.Close(); err != nil {
 			t.Fatal("failed to close database", err)
+		}
+	})
+}
+
+func TestRunMigrations(t *testing.T) {
+	t.Run("Success when open db and correct migrations", func(t *testing.T) {
+		path := filepath.Join(t.ArtifactDir(), "test.db")
+		db, err := sqlite.Open(t.Context(), path, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			err := db.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		migrations := fstest.MapFS{
+			"001_create_users_table.sql": &fstest.MapFile{
+				Data: []byte(`-- +goose Up
+					CREATE TABLE users (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						name TEXT NOT NULL
+					);
+				`),
+			},
+			"002_add_email_to_users.sql": &fstest.MapFile{
+				Data: []byte(`-- +goose Up
+					ALTER TABLE users ADD COLUMN email TEXT;
+				`),
+			},
+		}
+
+		if err := db.RunMigrations(t.Context(), migrations, "."); err != nil {
+			t.Fatal("failed to run migrations", err)
 		}
 	})
 }

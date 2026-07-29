@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,7 +15,11 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/config"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/pressly/goose/v3"
 )
+
+//go:embed migrations/*.sql
+var EmbeddedMigrations embed.FS
 
 type DB struct {
 	W      *sql.DB
@@ -60,6 +65,36 @@ func (db *DB) InTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	}
 
 	return nil
+}
+
+type gooseLoggerAdapter struct {
+	logger slog.Logger
+}
+
+func (g gooseLoggerAdapter) Printf(format string, v ...interface{}) {
+	g.logger.Debug(fmt.Sprintf(format, v...))
+}
+
+func (g gooseLoggerAdapter) Fatalf(format string, v ...interface{}) {
+	g.logger.Error(fmt.Sprintf(format, v...))
+}
+
+func (db *DB) RunMigrations(ctx context.Context, fs fs.FS, path string) error {
+	goose.SetLogger(gooseLoggerAdapter{logger: *db.logger})
+	goose.SetBaseFS(fs)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("failed to set goose dialect: %w", err)
+	}
+
+	if err := goose.UpContext(ctx, db.W, path); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+	db.logger.Debug("Migrations completed successfully")
+	return nil
+}
+
+func (db *DB) RunEmbeddedMigrations(ctx context.Context) error {
+	return db.RunMigrations(ctx, EmbeddedMigrations, "migrations")
 }
 
 // dsn returns the Data Source Name (DSN) for connecting to a SQLite database at the given path.
