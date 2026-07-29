@@ -10,3 +10,13 @@ tasks:
     env:
         LOG_LEVEL: -4
     silent: true
+  test:
+    desc: "Run the test suit (unit and integration tests)"
+    cmds:
+      - go test ./...
+    silent: true
+  unit-test:
+    desc: "Run the unit test suit"
+    cmds:
+      - go test -short ./...
+    silent: true
