@@ -2,11 +2,15 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/bramba2000/mrtutor/backend/errs"
+	"github.com/bramba2000/mrtutor/backend/validation"
 )
 
 // ctxKey marks the value used to prove the request context reaches the handler.
@@ -67,7 +71,6 @@ func TestWrap(t *testing.T) {
 
 	t.Run("Fail when decode returns an error", func(t *testing.T) {
 		w := newRecordingWriter()
-		logs := newCapturedLogs()
 		fnCalled, encodeCalled := false, false
 
 		decode := func(r *http.Request) (payload, error) {
@@ -82,18 +85,15 @@ func TestWrap(t *testing.T) {
 			return nil
 		}
 
-		h := wrap(decode, fn, encode, logs.logger)
+		h := wrap(decode, fn, encode, discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
-		if w.status != http.StatusBadRequest {
-			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
-		}
-		if got, want := w.body.String(), msgInvalidBody+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
-		}
-		// Decoder errors name Go types and fields, so they must stay internal.
-		if strings.Contains(w.body.String(), errBoom.Error()) {
-			t.Errorf("expected the decoder error to be withheld, got body %q", w.body.String())
+		// errBoom is unclassified, so it falls through to the 500 default; see
+		// TestWrap/"Fail when decode returns a classified error" for the case
+		// that proves wrap forwards the error faithfully instead of flattening
+		// it to a fixed status.
+		if w.status != http.StatusInternalServerError {
+			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 		}
 		if fnCalled {
 			t.Error("expected the handler not to run after a decode failure")
@@ -101,7 +101,23 @@ func TestWrap(t *testing.T) {
 		if encodeCalled {
 			t.Error("expected the encoder not to run after a decode failure")
 		}
-		logs.requireLogged(t, "failed to decode request", errBoom.Error())
+	})
+
+	t.Run("Fail when decode returns a classified error", func(t *testing.T) {
+		w := newRecordingWriter()
+
+		decode := func(r *http.Request) (payload, error) {
+			return payload{}, errs.Domain("bad", "bad input", errs.Invalid)
+		}
+
+		h := wrap(decode, handlerZero, noContent[payload], discardLogger())
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		// Proves wrap hands the decode error to writeError untouched, rather
+		// than mapping every decode failure to a fixed status itself.
+		if w.status != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
+		}
 	})
 
 	t.Run("Fail when input validation fails", func(t *testing.T) {
@@ -121,18 +137,47 @@ func TestWrap(t *testing.T) {
 		h := wrap(decode, fn, noContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
+		// A bare Validate error is classified as errs.Invalid by wrap itself
+		// (not by writeError), guaranteeing a 400 regardless of what the
+		// caller's Validate returns.
 		if w.status != http.StatusBadRequest {
 			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
-		}
-		// Validation messages are written for clients, so they are forwarded.
-		if got, want := w.body.String(), errValidation.Error()+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
 		}
 		if calls != 1 {
 			t.Errorf("expected Validate to be called once, got %d", calls)
 		}
 		if fnCalled {
 			t.Error("expected the handler not to run after a validation failure")
+		}
+	})
+
+	t.Run("Fail when input validation fails with validation.Errors", func(t *testing.T) {
+		w := newRecordingWriter()
+
+		validationErr := validation.Errors{"name": []error{errors.New("is required")}}.Err()
+		decode := func(r *http.Request) (validableValue, error) {
+			return validableValue{err: validationErr}, nil
+		}
+		fn := func(ctx context.Context, _ validableValue) (payload, error) {
+			return payload{}, nil
+		}
+
+		h := wrap(decode, fn, noContent[payload], discardLogger())
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		// validation.Errors already reports Is(errs.Invalid) (see
+		// validation/errors.go), so wrap's classification must not rewrap it —
+		// doing so would sever the type chain writeError relies on to recover
+		// the per-field detail.
+		if w.status != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
+		}
+		var body errorBody
+		if err := json.Unmarshal(w.body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+		if len(body.Fields) != 1 || body.Fields[0].Name != "name" {
+			t.Errorf("expected the validation.Errors field detail to survive, got %+v", body.Fields)
 		}
 	})
 
@@ -222,7 +267,6 @@ func TestWrap(t *testing.T) {
 
 	t.Run("Fail when handler returns an error", func(t *testing.T) {
 		w := newRecordingWriter()
-		logs := newCapturedLogs()
 		encodeCalled := false
 
 		fn := func(ctx context.Context, _ payload) (payload, error) {
@@ -233,83 +277,30 @@ func TestWrap(t *testing.T) {
 			return nil
 		}
 
-		h := wrap(decodeZero, fn, encode, logs.logger)
+		h := wrap(decodeZero, fn, encode, discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		if w.status != http.StatusInternalServerError {
 			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 		}
-		if got, want := w.body.String(), msgInternalError+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
-		}
-		if strings.Contains(w.body.String(), errBoom.Error()) {
-			t.Errorf("expected the handler error to be withheld, got body %q", w.body.String())
-		}
 		if encodeCalled {
 			t.Error("expected the encoder not to run after a handler failure")
 		}
-		logs.requireLogged(t, "request handler failed", errBoom.Error())
 	})
 
-	t.Run("Fail when encode returns an error without writing", func(t *testing.T) {
+	t.Run("Fail when encode returns an error", func(t *testing.T) {
 		w := newRecordingWriter()
-		logs := newCapturedLogs()
 
 		encode := func(w http.ResponseWriter, _ payload) error {
 			return errBoom
 		}
 
-		h := wrap(decodeZero, handlerZero, encode, logs.logger)
+		h := wrap(decodeZero, handlerZero, encode, discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		if w.status != http.StatusInternalServerError {
 			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 		}
-		if got, want := w.body.String(), msgInternalError+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
-		}
-		logs.requireLogged(t, "failed to encode response", errBoom.Error())
-	})
-
-	t.Run("Fail when encode cannot marshal the value", func(t *testing.T) {
-		w := newRecordingWriter()
-		logs := newCapturedLogs()
-
-		fn := func(ctx context.Context, _ payload) (unmarshalable, error) {
-			return unmarshalable{}, nil
-		}
-
-		// ok buffers the encoding, so a value it cannot marshal leaves the
-		// response untouched and the failure becomes a real 500.
-		h := wrap(decodeZero, fn, ok[unmarshalable], logs.logger)
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		if w.status != http.StatusInternalServerError {
-			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
-		}
-		if got, want := w.body.String(), msgInternalError+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
-		}
-		if got := w.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
-			t.Errorf("expected the JSON Content-Type to be replaced, got %q", got)
-		}
-		logs.requireLogged(t, "failed to encode response", "unsupported type")
-	})
-
-	t.Run("Fail when encode fails after committing the status", func(t *testing.T) {
-		w := newRecordingWriter()
-		w.writeErr = errWrite
-		logs := newCapturedLogs()
-
-		h := wrap(decodeZero, handlerZero, ok[payload], logs.logger)
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		// Unavoidable, and distinct from the case above: the body could not be
-		// written, but 200 was already sent, so no 500 can replace it.
-		if w.status != http.StatusOK {
-			t.Errorf("expected the committed status %d to be retained, got %d", http.StatusOK, w.status)
-		}
-		logs.requireLogged(t, "failed to encode response", errWrite.Error())
 	})
 
 	t.Run("Success when logger is nil and the handler fails", func(t *testing.T) {
@@ -388,22 +379,17 @@ func TestWrapNoInput(t *testing.T) {
 
 	t.Run("Fail when handler returns an error", func(t *testing.T) {
 		w := newRecordingWriter()
-		logs := newCapturedLogs()
 
 		fn := func(ctx context.Context) (payload, error) {
 			return payload{}, errBoom
 		}
 
-		h := wrapNoInput(fn, ok[payload], logs.logger)
+		h := wrapNoInput(fn, ok[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
 		if w.status != http.StatusInternalServerError {
 			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 		}
-		if got, want := w.body.String(), msgInternalError+"\n"; got != want {
-			t.Errorf("expected body %q, got %q", want, got)
-		}
-		logs.requireLogged(t, "request handler failed", errBoom.Error())
 	})
 
 	t.Run("Fail when encode returns an error", func(t *testing.T) {

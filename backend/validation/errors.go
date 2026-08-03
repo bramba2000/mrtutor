@@ -3,6 +3,8 @@ package validation
 import (
 	"slices"
 	"strings"
+
+	"github.com/bramba2000/mrtutor/backend/errs"
 )
 
 // Errors is a map of field names to slices of errors.
@@ -74,6 +76,10 @@ func (in Errors) Error() string {
 		}
 	}
 	return b.String()
+}
+
+func (in Errors) Is(target error) bool {
+	return target == errs.Invalid
 }
 
 func filterNil(errs []error) []error {

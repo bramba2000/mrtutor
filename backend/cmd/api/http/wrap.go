@@ -2,14 +2,12 @@ package http
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
-)
 
-// Response bodies for the failures whose cause must not reach the client.
-const (
-	msgInvalidBody   = "invalid request body"
-	msgInternalError = "internal server error"
+	"github.com/bramba2000/mrtutor/backend/errs"
 )
 
 type Validable interface {
@@ -22,51 +20,49 @@ type Validable interface {
 // Validable. Note that the check is a plain type assertion on In, so a Validate
 // method declared on *T is not reached when In is T.
 //
-// Failures map to responses as follows:
-//
-//	decode error     400, body "invalid request body"
-//	Validate error   400, body carrying the validation message
-//	fn error         500, body "internal server error"
-//	encode error     500, body "internal server error"
-//
-// Only validation messages are forwarded, being written for clients in the first
-// place. Decoder errors are withheld because they name Go types and struct
-// fields, and fn and encode errors because they are internal; both are logged
-// instead. Passing a nil logger disables that logging.
+// Every failure — from decode, Validate, fn, or encode — is handed to
+// writeError, which derives the response status and body from the error's errs
+// classification (see errs and writeError) and logs the failure. A Validate
+// error is classified as errs.Invalid first, unless it is already classified as
+// something else, so any Validable is guaranteed a 400 response; return
+// validation.Errors or an errs.Domain error from Validate for a client-visible
+// message. Passing a nil logger is safe; writeError disables logging in that
+// case.
 func wrap[In, Out any](
 	decode func(*http.Request) (In, error),
 	fn func(context.Context, In) (Out, error),
 	encode func(http.ResponseWriter, Out) error,
 	logger *slog.Logger,
 ) http.HandlerFunc {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		in, err := decode(r)
 		if err != nil {
-			logError(r.Context(), logger, "failed to decode request", err)
-			http.Error(w, msgInvalidBody, http.StatusBadRequest)
+			writeError(w, r, err, logger)
 			return
 		}
 
 		if v, ok := any(in).(Validable); ok {
 			if err := v.Validate(); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				if !errors.Is(err, errs.Invalid) {
+					err = fmt.Errorf("%w: %w", errs.Invalid, err)
+				}
+				writeError(w, r, err, logger)
 				return
 			}
 		}
 
 		out, err := fn(r.Context(), in)
 		if err != nil {
-			logError(r.Context(), logger, "request handler failed", err)
-			http.Error(w, msgInternalError, http.StatusInternalServerError)
+			writeError(w, r, err, logger)
 			return
 		}
 
 		err = encode(w, out)
 		if err != nil {
-			logError(r.Context(), logger, "failed to encode response", err)
-			// A no-op when the encoder already committed a status, which is
-			// unavoidable: the response is on its way out by then.
-			http.Error(w, msgInternalError, http.StatusInternalServerError)
+			writeError(w, r, err, logger)
 			return
 		}
 	}
@@ -90,12 +86,4 @@ func wrapNoInput[Out any](
 		encode,
 		logger,
 	)
-}
-
-// logError reports err at error level, tolerating a nil logger.
-func logError(ctx context.Context, logger *slog.Logger, msg string, err error) {
-	if logger == nil {
-		return
-	}
-	logger.ErrorContext(ctx, msg, "error", err)
 }

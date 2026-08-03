@@ -3,37 +3,27 @@ package sqlite
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 
+	"github.com/bramba2000/mrtutor/backend/errs"
 	"github.com/mattn/go-sqlite3"
 )
 
-type ErrorKind int
-
-const (
-	// ErrorKindUnknown represents an unknown error kind.
-	ErrorKindUnknown ErrorKind = iota
-	// ErrorKindNotFound represents a not found error kind.
-	ErrorKindNotFound
-	// ErrorKindUniqueConstraint represents a unique constraint violation error kind.
-	ErrorKindUniqueConstraint
-)
-
-func KindOf(err error) ErrorKind {
+func translateSQLError(op string, err error, notFound, conflict error) error {
 	if err == nil {
-		return ErrorKindUnknown
-	}
-	if err == sql.ErrNoRows {
-		return ErrorKindNotFound
+		return nil
 	}
 
-	if sqliteErr, ok := errors.AsType[*sqlite3.Error](err); ok {
-		switch sqliteErr.ExtendedCode {
-		case sqlite3.ErrConstraintUnique:
-			return ErrorKindUniqueConstraint
-		default:
-			return ErrorKindUnknown
+	if notFound != nil && errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%s: %w", op, errs.NotFound)
+	}
+
+	if serr, ok := errors.AsType[sqlite3.Error](err); ok {
+		switch code := serr.Code; {
+		case conflict != nil && code == sqlite3.ErrConstraint:
+			return fmt.Errorf("%s: %w", op, conflict)
 		}
 	}
 
-	return ErrorKindUnknown
+	return fmt.Errorf("%s: %v", op, err)
 }
