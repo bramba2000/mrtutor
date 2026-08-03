@@ -20,3 +20,8 @@ tasks:
     cmds:
       - go test -short ./...
     silent: true
+  sqlc:
+    desc: "Run the sqlc code generation"
+    cmds:
+      - go tool -modfile=go.tool.mod sqlc generate
+    silent: true

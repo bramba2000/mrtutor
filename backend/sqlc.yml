@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://www.schemastore.org/sqlc-2.0.json
+
+version: "2"
+sql:
+  - engine: sqlite
+    schema: "sqlite/migrations/*.sql"
+    queries: "sqlite/queries/*.sql"
+    gen:
+      go:
+        package: gen
+        out: "sqlite/internal"
