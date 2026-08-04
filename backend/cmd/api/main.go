@@ -34,8 +34,10 @@ func main() {
 		logger.Error("Failed to run migrations", "error", err)
 		return
 	}
+	svcs := createServices(db)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", healthHandler)
+	RegisterRoutes(svcs, mux, logger)
 
 	srv := NewServer(config.Address(), mux, logger)
 	logger.Debug("Boostrap completed")
@@ -59,16 +61,6 @@ func main() {
 	}
 
 	closeDatabase(db, logger)
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if isShuttingDown.Load() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("Service is shutting down"))
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }
 
 func newLogger() *slog.Logger {
