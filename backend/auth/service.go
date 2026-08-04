@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/bramba2000/mrtutor/backend/errs"
 	"github.com/bramba2000/mrtutor/backend/validation"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -32,8 +34,13 @@ func (in LoginIn) Validate() error {
 
 func (svc Service) Login(ctx context.Context, in LoginIn) (string, error) {
 	principal, err := svc.principalStore.GetByUsernameOrEmail(ctx, in.Token)
-	if err != nil {
+	if err != nil && !errors.Is(err, errs.NotFound) {
 		return "", err
+	}
+
+	if errors.Is(err, errs.NotFound) {
+		checkPasswordAndHash(in.Password, []byte("$2a$10$KorBjJKn1XhwziiSfTZA4OBJngdfphnBL6a7rIdVJk6QsgYFy1aki")) // Dummy hash for timing attack mitigation
+		return "", ErrInvalidCredentials
 	}
 
 	if ok := checkPasswordAndHash(in.Password, principal.PasswordHash); !ok {

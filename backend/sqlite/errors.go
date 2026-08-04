@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bramba2000/mrtutor/backend/errs"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -15,7 +14,7 @@ func translateSQLError(op string, err error, notFound, conflict error) error {
 	}
 
 	if notFound != nil && errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%s: %w", op, errs.NotFound)
+		return fmt.Errorf("%s: %w", op, notFound)
 	}
 
 	if serr, ok := errors.AsType[sqlite3.Error](err); ok {

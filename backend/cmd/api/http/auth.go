@@ -16,17 +16,22 @@ type authHandler struct {
 const sessionCookieName = "session"
 const sessionCookieMaxAge = 7 * 24 * time.Hour // 7 days
 
+func encodeSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, new(http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		HttpOnly: true,
+		MaxAge:   int(sessionCookieMaxAge),
+	}))
+}
+
 func NewAuthHandler(svc auth.Service, logger *slog.Logger) authHandler {
 	return authHandler{
 		Login: wrap(
 			bodyDecoder[auth.LoginIn],
 			svc.Login,
 			func(w http.ResponseWriter, out string) error {
-				http.SetCookie(w, new(http.Cookie{
-					Name:     sessionCookieName,
-					Value:    out,
-					HttpOnly: true,
-				}))
+				encodeSessionCookie(w, out)
 				w.WriteHeader(http.StatusOK)
 				return nil
 			},
@@ -36,14 +41,8 @@ func NewAuthHandler(svc auth.Service, logger *slog.Logger) authHandler {
 			bodyDecoder[auth.RegisterIn],
 			svc.Register,
 			func(w http.ResponseWriter, out auth.RegisterOut) error {
-				http.SetCookie(w, new(http.Cookie{
-					Name:     sessionCookieName,
-					Value:    out.SessionToken,
-					HttpOnly: true,
-					Expires:  time.Now().Add(sessionCookieMaxAge),
-				}))
-				w.WriteHeader(http.StatusOK)
-				return nil
+				encodeSessionCookie(w, out.SessionToken)
+				return noContent(w, struct{}{})
 			},
 			logger,
 		),

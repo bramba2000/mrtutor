@@ -51,7 +51,7 @@ func (s *SessionStore) Create(ctx context.Context, session auth.Session) (auth.S
 		CreatedAt: session.CreatedAt,
 	})
 	if err != nil {
-		return auth.Session{}, translateSQLError("create session ", err, auth.ErrSessionNotFound, nil)
+		return auth.Session{}, translateSQLError("create session ", err, auth.ErrSessionNotFound, auth.ErrSessionConflict)
 	}
 	return session, nil
 }
@@ -77,5 +77,6 @@ func principalFromDB(principal gen.Principal) auth.Principal {
 		Email:        principal.Email,
 		PasswordHash: principal.PasswordHash,
 		CreatedAt:    principal.CreatedAt,
+		UpdatedAt:    principal.UpdatedAt.Time,
 	}
 }

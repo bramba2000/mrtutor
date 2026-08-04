@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -95,5 +96,5 @@ func isJsonDecodingError(err error) bool {
 	var syntaxErr *json.SyntaxError
 	var unmarshalTypeErr *json.UnmarshalTypeError
 
-	return errors.As(err, &syntaxErr) || errors.As(err, &unmarshalTypeErr)
+	return errors.As(err, &syntaxErr) || errors.As(err, &unmarshalTypeErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }

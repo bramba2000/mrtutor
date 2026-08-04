@@ -27,4 +27,5 @@ var (
 	ErrSessionNotFound    = errs.Domain("session.notFound", "session not found", errs.NotFound)
 	ErrConflictPrincipal  = errs.Domain("principal.conflict", "principal already exists", errs.Conflict)
 	ErrInvalidCredentials = errs.Domain("invalidCredentials", "invalid credentials", errs.Unauthenticated)
+	ErrSessionConflict    = errs.Domain("session.conflict", "session already exists", errs.Conflict)
 )
