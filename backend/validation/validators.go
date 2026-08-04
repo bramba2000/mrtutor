@@ -3,6 +3,7 @@ package validation
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 )
 
@@ -45,7 +46,7 @@ func NotNil[T any](value *T) error {
 }
 
 // MinLength checks if the length of the value is at least min.
-func MinLength[T ~string | ~[]any](value T, min int) Validator[T] {
+func MinLength[T ~string | ~[]any](min int) Validator[T] {
 	return func(value T) error {
 		if len(value) < min {
 			return fmt.Errorf("must be at least %d characters long", min)
@@ -55,10 +56,20 @@ func MinLength[T ~string | ~[]any](value T, min int) Validator[T] {
 }
 
 // MaxLength checks if the length of the value is at most max.
-func MaxLength[T ~string | ~[]any](value T, max int) Validator[T] {
+func MaxLength[T ~string | ~[]any](max int) Validator[T] {
 	return func(value T) error {
 		if len(value) > max {
 			return fmt.Errorf("must be at most %d characters long", max)
+		}
+		return nil
+	}
+}
+
+// MinMaxLength checks if the length of the value is between min and max (inclusive).
+func MinMaxLength[T ~string | ~[]any](min, max int) Validator[T] {
+	return func(value T) error {
+		if len(value) < min || len(value) > max {
+			return fmt.Errorf("must be between %d and %d characters long", min, max)
 		}
 		return nil
 	}
@@ -78,4 +89,10 @@ func NotBlank(value string) error {
 		return errors.New("must not be blank")
 	}
 	return nil
+}
+
+// Email checks if the string value is a valid email address.
+func Email(value string) error {
+	_, err := mail.ParseAddress(value)
+	return err
 }

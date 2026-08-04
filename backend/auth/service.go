@@ -5,11 +5,18 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bramba2000/mrtutor/backend/validation"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type Service struct {
+	principalStore PrincipalStore
+	sessionStore   SessionStore
+}
 
 type LoginIn struct {
 	Token    string `json:"token"`
@@ -21,11 +28,6 @@ func (in LoginIn) Validate() error {
 		"token":    validation.Validate(in.Token, validation.Required, validation.NotBlank),
 		"password": validation.Validate(in.Password, validation.Required, validation.NotBlank),
 	}.Err()
-}
-
-type Service struct {
-	principalStore PrincipalStore
-	sessionStore   SessionStore
 }
 
 func (svc Service) Login(ctx context.Context, in LoginIn) (string, error) {
@@ -54,6 +56,86 @@ func (svc Service) Login(ctx context.Context, in LoginIn) (string, error) {
 	}
 
 	return sessionToken, nil
+}
+
+type RegisterIn struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (in RegisterIn) Validate() error {
+	return validation.Errors{
+		"username": validation.Validate(in.Username, validation.Required, validation.MinLength[string](6)),
+		"email":    validation.Validate(in.Email, validation.Required, validation.NotBlank, validation.Email),
+		"password": validation.Validate(in.Password, validation.Required, validation.NotBlank, passwordValidator),
+	}.Err()
+}
+
+var passwordValidator validation.Validator[string] = func(s string) error {
+	const minPasswordLength = 8
+	const maxPasswordLength = 72
+	if len(s) < minPasswordLength {
+		return fmt.Errorf("password must be at least 8 characters long")
+	}
+	if len(s) > maxPasswordLength {
+		return fmt.Errorf("password must be at most 72 characters long")
+	}
+	var hasUpper, hasLower, hasNumber, hasSpecial bool
+	for _, c := range s {
+		switch {
+		case 'A' <= c && c <= 'Z':
+			hasUpper = true
+		case 'a' <= c && c <= 'z':
+			hasLower = true
+		case '0' <= c && c <= '9':
+			hasNumber = true
+		case strings.ContainsRune("!@#$%^&*()-_=+[]{}|;:',.<>?/", c):
+			hasSpecial = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasNumber || !hasSpecial {
+		return fmt.Errorf("password must contain at least one uppercase letter, one lowercase letter, one number, and one special character")
+	}
+	return nil
+}
+
+type RegisterOut struct {
+	Principal    Principal
+	SessionToken string
+}
+
+func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, error) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return RegisterOut{}, err
+	}
+
+	principal, err := svc.principalStore.Create(ctx, Principal{
+		Username:     in.Username,
+		Email:        in.Email,
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
+		return RegisterOut{}, err
+	}
+
+	token, err := newSessionToken()
+	if err != nil {
+		return RegisterOut{}, err
+	}
+	tokenHash := sha256.Sum256([]byte(token))
+
+	_, err = svc.sessionStore.Create(ctx, Session{
+		TokenHash: tokenHash,
+		UserID:    principal.ID,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return RegisterOut{}, err
+	}
+
+	return RegisterOut{Principal: principal, SessionToken: token}, nil
 }
 
 func NewService(principalStore PrincipalStore, sessionStore SessionStore) Service {

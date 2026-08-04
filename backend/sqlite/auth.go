@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"cmp"
 	"context"
+	"time"
 
 	"github.com/bramba2000/mrtutor/backend/auth"
 	gen "github.com/bramba2000/mrtutor/backend/sqlite/internal"
@@ -17,7 +19,7 @@ func (p *PrincipalStore) Create(ctx context.Context, principal auth.Principal) (
 		Username:     principal.Username,
 		Email:        principal.Email,
 		PasswordHash: principal.PasswordHash,
-		CreatedAt:    principal.CreatedAt,
+		CreatedAt:    cmp.Or(principal.CreatedAt, time.Now().UTC()),
 	})
 	if err != nil {
 		return auth.Principal{}, translateSQLError("create principal ", err, nil, auth.ErrConflictPrincipal)

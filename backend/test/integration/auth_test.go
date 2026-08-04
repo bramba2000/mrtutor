@@ -81,4 +81,38 @@ func TestAuth(t *testing.T) {
 			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+	t.Run("Successul registration when valid credentials", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/register", encodeBody(t, auth.RegisterIn{
+			Username: "newuser",
+			Email:    "newuser@example.com",
+			Password: "Password00!",
+		}))
+		w := httptest.NewRecorder()
+		handler.Register.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var found bool
+		for _, c := range w.Result().Cookies() {
+			if c.Name == "session" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected session cookie to be set")
+		}
+	})
+	t.Run("Fail registration when username already registered", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/register", encodeBody(t, auth.RegisterIn{
+			Username: principal.Username,
+			Email:    "testregister@example.com",
+			Password: "Password00!",
+		}))
+		w := httptest.NewRecorder()
+		handler.Register.ServeHTTP(w, req)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected status 409, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }
