@@ -13,12 +13,17 @@ type Server struct {
 	logger                *slog.Logger
 }
 
+const maxRequestBodySize = 1024 * 1024 // 1 MB
+
 func NewServer(addr string, handler http.Handler, logger *slog.Logger) *Server {
 	ongoingCtx, stopOngoingGracefully := context.WithCancel(context.Background())
+
 	if logger == nil {
 		logger = slog.Default()
 	}
 	logger = logger.With("component", "server")
+
+	handler = http.MaxBytesHandler(handler, maxRequestBodySize)
 
 	return &Server{
 		server: http.Server{

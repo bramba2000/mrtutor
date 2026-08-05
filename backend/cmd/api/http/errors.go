@@ -22,6 +22,12 @@ type fieldEntry struct {
 	Message string `json:"message"`
 }
 
+type publicError interface {
+	Code() string
+	Public() string
+	Error() string
+}
+
 func writeError(w http.ResponseWriter, r *http.Request, err error, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
@@ -37,17 +43,15 @@ func writeError(w http.ResponseWriter, r *http.Request, err error, logger *slog.
 
 	body := errorBody{Code: "internal", Message: "internal error"}
 
-	var d interface {
-		Code() string
-		Public() string
-	}
-
 	if isJsonDecodingError(err) {
 		body.Code = "invalid.json"
 		body.Message = "invalid JSON"
-	} else if errors.As(err, &d) {
+	} else if d, ok := errors.AsType[publicError](err); ok {
 		body.Code = d.Code()
 		body.Message = d.Public()
+	} else if errors.Is(err, ErrContentTypeNotJSON) {
+		body.Code = "invalid.contentType"
+		body.Message = "content type is not JSON"
 	}
 
 	if v, ok := errors.AsType[validation.Errors](err); ok {
@@ -87,6 +91,8 @@ func statusFor(err error) int {
 		return http.StatusPreconditionFailed
 	case isJsonDecodingError(err):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrContentTypeNotJSON):
+		return http.StatusUnsupportedMediaType
 	default:
 		return http.StatusInternalServerError
 	}

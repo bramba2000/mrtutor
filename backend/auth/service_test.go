@@ -33,7 +33,7 @@ func seedPrincipal(t testing.TB, store auth.PrincipalStore, username, email, pas
 }
 
 func TestService(t *testing.T) {
-	principalStore := mockPrincipalStore{
+	principalStore := &mockPrincipalStore{
 		db:    make(map[int]auth.Principal),
 		count: 0,
 	}
@@ -80,7 +80,7 @@ type mockPrincipalStore struct {
 }
 
 // Create implements [auth.PrincipalStore].
-func (m mockPrincipalStore) Create(ctx context.Context, principal auth.Principal) (auth.Principal, error) {
+func (m *mockPrincipalStore) Create(ctx context.Context, principal auth.Principal) (auth.Principal, error) {
 	for _, p := range m.db {
 		if p.Username == principal.Username {
 			return auth.Principal{}, auth.ErrConflictPrincipal
@@ -98,7 +98,7 @@ func (m mockPrincipalStore) Create(ctx context.Context, principal auth.Principal
 }
 
 // GetByUsernameOrEmail implements [auth.PrincipalStore].
-func (m mockPrincipalStore) GetByUsernameOrEmail(ctx context.Context, usernameOrEmail string) (auth.Principal, error) {
+func (m *mockPrincipalStore) GetByUsernameOrEmail(ctx context.Context, usernameOrEmail string) (auth.Principal, error) {
 	for _, principal := range m.db {
 		if principal.Username == usernameOrEmail || principal.Email == usernameOrEmail {
 			return principal, nil
@@ -108,7 +108,7 @@ func (m mockPrincipalStore) GetByUsernameOrEmail(ctx context.Context, usernameOr
 	return auth.Principal{}, auth.ErrPrincipalNotFound
 }
 
-var _ auth.PrincipalStore = mockPrincipalStore{}
+var _ auth.PrincipalStore = &mockPrincipalStore{}
 
 type mockSessionStore map[[32]byte]auth.Session
 
@@ -281,7 +281,7 @@ func TestRegisterIn_Validate(t *testing.T) {
 }
 
 func TestService_Register(t *testing.T) {
-	seededPrincipalStore := mockPrincipalStore{db: map[int]auth.Principal{}}
+	seededPrincipalStore := &mockPrincipalStore{db: map[int]auth.Principal{}}
 	existingPrincipal := seedPrincipal(t, seededPrincipalStore, "testuser", "testuser@example.com", "Abc123!!")
 
 	tests := []struct {
@@ -294,7 +294,7 @@ func TestService_Register(t *testing.T) {
 	}{
 		{
 			name:           "Succed with valid credentials",
-			principalStore: mockPrincipalStore{db: make(map[int]auth.Principal)},
+			principalStore: &mockPrincipalStore{db: make(map[int]auth.Principal)},
 			sessionStore:   make(mockSessionStore),
 			in: auth.RegisterIn{
 				Username: "testuser",

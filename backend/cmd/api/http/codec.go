@@ -3,7 +3,12 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
+)
+
+var (
+	ErrContentTypeNotJSON = errors.New("content type of request is not application/json")
 )
 
 // bodyDecoder decodes the request body as JSON into a new T.
@@ -14,6 +19,9 @@ import (
 // forwarded to the client.
 func bodyDecoder[T any](r *http.Request) (T, error) {
 	decoded := new(T)
+	if r.Header.Get("Content-Type") != "application/json" {
+		return *decoded, ErrContentTypeNotJSON
+	}
 	if err := json.NewDecoder(r.Body).Decode(decoded); err != nil {
 		return *decoded, err
 	}

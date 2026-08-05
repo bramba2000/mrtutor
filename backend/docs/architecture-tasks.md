@@ -29,10 +29,10 @@ Do these first: cheap, independently reviewable, unblocked by everything else, a
 
 ### 0.3 Remaining defects, polish, and test gaps
 
-- [ ] **#8** `cmd/api/http/codec.go:15-21` — no `http.MaxBytesReader`; request bodies are unbounded.
-- [ ] **#10** `auth/service_test.go:83,93` — `mockPrincipalStore.Create` has a value receiver but mutates `m.count`; the increment is lost, so every principal gets `ID = 1` and overwrites `db[1]`. Fix the fixture and add a test that seeds two principals into one store (this is also why #2 was never caught).
+- [x] **#8** `cmd/api/http/codec.go:15-21` — no `http.MaxBytesReader`; request bodies are unbounded.
+- [x] **#10** `auth/service_test.go:83,93` — `mockPrincipalStore.Create` has a value receiver but mutates `m.count`; the increment is lost, so every principal gets `ID = 1` and overwrites `db[1]`. Fix the fixture and add a test that seeds two principals into one store (this is also why #2 was never caught).
 - [ ] **#12** `config/loaders.go:18,28` — `getDuration`/`getInt` swallow parse errors and silently return the default (e.g. `READ_POOL_SIZE=abc` → 4, no error). Superseded properly by the Phase 2 `Config` rework, but don't leave it silently broken in the meantime.
-- [ ] Polish: `bodyDecoder` ignores trailing content (check `dec.More()`); no `Content-Type` check (415 for non-JSON); `validation.Email` leaks the raw `mail.ParseAddress` message, inconsistent with other validators; `validation.MinLength[T ~string | ~[]any]` can't accept typed slices; `errs.Domain` returns an unexported `*domainError` callers can't name; `cmd/api/main.go:57` shadows `cancel`.
+- [x] Polish: `bodyDecoder` ignores trailing content (check `dec.More()`); no `Content-Type` check (415 for non-JSON); `validation.Email` leaks the raw `mail.ParseAddress` message, inconsistent with other validators; `validation.MinLength[T ~string | ~[]any]` can't accept typed slices; `errs.Domain` returns an unexported `*domainError` callers can't name; `cmd/api/main.go:57` shadows `cancel`.
 - [ ] Test gaps: `cmd/api/http/auth_test.go` is empty (0 bytes) — write handler-level unit tests once the `Service` seam exists (Phase 3); integration test calls handlers directly rather than through the mux — add a test that drives `/api/v1/...` through the real mux; `TestAuth` subtests share one DB with order dependence; assert the session cookie on successful login; `sqlite/db_test.go` touches disk without a `-short` gate.
 
 ---
