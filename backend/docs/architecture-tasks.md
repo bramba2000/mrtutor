@@ -40,10 +40,10 @@ Do these first: cheap, independently reviewable, unblocked by everything else, a
 ## Phase 1 — `run(ctx) error` seam and server lifecycle
 
 - [x] **#3** Split `main()` into `main()` + `run(ctx, stdout, stderr, lookupEnv) error` with real exit codes; reserve a distinct exit code for misconfiguration. Fixes: startup failures currently `return` and exit 0.
-- [ ] **#4** `cmd/api/http/server.go` — split bind from serve: `Run(ctx)` calls `net.Listen`, then `Serve(ctx, ln)`, so a listen error (port in use) is returned synchronously instead of only logged from a goroutine while the process keeps running serving nothing. Use `errors.Is(err, http.ErrServerClosed)`, not `==`.
+- [x] **#4** `cmd/api/http/server.go` — split bind from serve: `Run(ctx)` calls `net.Listen`, then `Serve(ctx, ln)`, so a listen error (port in use) is returned synchronously instead of only logged from a goroutine while the process keeps running serving nothing. Use `errors.Is(err, http.ErrServerClosed)`, not `==`.
 - [ ] **#6** Add `ReadHeaderTimeout`/`ReadTimeout`/`WriteTimeout`/`IdleTimeout` to the `http.Server` (currently all zero → Slowloris exposure).
-- [ ] Retire the `isShuttingDown atomic.Bool` global (`main.go:18`, read in `routes.go:22`) for an injected `Readiness` value; split liveness (`/livez`) from readiness (`/readyz`).
-- [ ] Preserve: `run()` must **not** return `ctx.Err()` — a clean SIGTERM is success; returning `context.Canceled` would put every graceful shutdown into CrashLoopBackOff. The shutdown context must use `context.WithoutCancel` (already correct today at `main.go:57` — don't regress it).
+- [x] Retire the `isShuttingDown atomic.Bool` global (`main.go:18`, read in `routes.go:22`) for an injected `Readiness` value; split liveness (`/livez`) from readiness (`/readyz`).
+- [x] Preserve: `run()` must **not** return `ctx.Err()` — a clean SIGTERM is success; returning `context.Canceled` would put every graceful shutdown into CrashLoopBackOff. The shutdown context must use `context.WithoutCancel` (already correct today at `main.go:57` — don't regress it).
 
 ---
 

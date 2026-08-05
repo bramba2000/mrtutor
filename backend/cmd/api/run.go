@@ -10,8 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	ehttp "github.com/bramba2000/mrtutor/backend/cmd/api/http"
 	"github.com/bramba2000/mrtutor/backend/config"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
@@ -39,28 +39,24 @@ func run(ctx context.Context, stderr io.Writer, _ func(string) (string, bool)) (
 
 	mux := http.NewServeMux()
 	svcs := createServices(db)
+
 	RegisterRoutes(svcs, mux, logger)
 
-	srv := NewServer(config.Address(), mux, logger)
+	readiness := ehttp.Readiness{}
+	mux.Handle("/healthz", readiness.Handler())
+	mux.Handle("/livez", ehttp.Liveness())
 
-	srv.Start()
+	srv := ehttp.NewServer(ehttp.Config{
+		Address:         config.Address(),
+		Handler:         mux,
+		Logger:          logger,
+		LogLevel:        config.LogLevel,
+		ShutdownTimeout: config.ShutdownTimeout,
+		DrainPeriod:     config.ReadinessDrainPeriod,
+		OnShuttingDown:  readiness.Shutdown,
+	})
 
-	<-rootCtx.Done()
-	cancelRoot()
-	logger.Info("Received shutdown signal, starting graceful shutdown")
-	isShuttingDown.Store(true)
-	time.Sleep(config.ReadinessDrainPeriod)
-
-	logger.Debug("Readiness probe drained")
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-	defer cancelShutdown()
-
-	err = srv.Shutdown(shutdownCtx)
-	if err != nil {
-		logger.Error("Error during shutdown, forcing exit", "error", err)
-		time.Sleep(config.ShutdownHardTimeout)
-		return fmt.Errorf("shutdown: %w", err)
-	}
+	srv.Run(ctx)
 
 	return nil
 }
