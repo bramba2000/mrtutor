@@ -46,7 +46,7 @@ func NotNil[T any](value *T) error {
 }
 
 // MinLength checks if the length of the value is at least min.
-func MinLength[T ~string | ~[]E, E any](min int) Validator[T] {
+func MinLength[T ~string](min int) Validator[T] {
 	return func(value T) error {
 		if len(value) < min {
 			return fmt.Errorf("must be at least %d characters long", min)
@@ -56,7 +56,7 @@ func MinLength[T ~string | ~[]E, E any](min int) Validator[T] {
 }
 
 // MaxLength checks if the length of the value is at most max.
-func MaxLength[T ~string | ~[]E, E any](max int) Validator[T] {
+func MaxLength[T ~string](max int) Validator[T] {
 	return func(value T) error {
 		if len(value) > max {
 			return fmt.Errorf("must be at most %d characters long", max)
@@ -66,7 +66,7 @@ func MaxLength[T ~string | ~[]E, E any](max int) Validator[T] {
 }
 
 // MinMaxLength checks if the length of the value is between min and max (inclusive).
-func MinMaxLength[T ~string | ~[]E, E any](min, max int) Validator[T] {
+func MinMaxLength[T ~string](min, max int) Validator[T] {
 	return func(value T) error {
 		if len(value) < min || len(value) > max {
 			return fmt.Errorf("must be between %d and %d characters long", min, max)
