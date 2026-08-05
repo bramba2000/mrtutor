@@ -70,7 +70,7 @@ var (
 Everything else in the codebase is constructor-injected. Config is not — and library packages reach into it directly:
 
 - `sqlite/db.go:133,140-141` reads `config.ReadPoolSize`
-- `cmd/api/http/server.go:29` reads `config.LogLevel`
+- ~~`cmd/api/http/server.go:29` reads `config.LogLevel`~~ — already resolved independently by `55c5e77`, ahead of this fix; `cmd/api/http` took an options struct and stopped importing `config` before Phase 2 landed.
 
 Four consequences:
 
@@ -80,6 +80,8 @@ Four consequences:
 4. **No validation and no single failure point.** A misconfigured deployment starts happily and misbehaves later.
 
 This is the fix that unblocks most of the others.
+
+**Status: resolved.** `config.Load(lookup) (Config, error)` replaces the package vars, accumulating every parse/validation failure into a `validation.Errors` keyed by env var name instead of defaulting silently — closing consequences 3 and 4 (defect **#12**) at once. `sqlite.Open` now takes a `sqlite.Options{Path, Logger, ReadPoolSize}` (defaulting `ReadPoolSize` to 4 internally), closing consequences 1 and 2 — `go list -deps ./sqlite ./cmd/api/http | grep config` returns nothing. See `docs/architecture-tasks.md` Phase 2.
 
 ### 4.2 The composition root does not scale
 

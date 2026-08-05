@@ -1,9 +1,11 @@
 package validation
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/mail"
+	"slices"
 	"strings"
 )
 
@@ -98,4 +100,44 @@ func Email(value string) error {
 		return errors.New("must be a valid email address")
 	}
 	return nil
+}
+
+// Min checks if the value is at least min.
+func Min[T cmp.Ordered](min T) Validator[T] {
+	return func(value T) error {
+		if value < min {
+			return fmt.Errorf("must be at least %v", min)
+		}
+		return nil
+	}
+}
+
+// Max checks if the value is at most max.
+func Max[T cmp.Ordered](max T) Validator[T] {
+	return func(value T) error {
+		if value > max {
+			return fmt.Errorf("must be at most %v", max)
+		}
+		return nil
+	}
+}
+
+// MinMax checks if the value is between min and max (inclusive).
+func MinMax[T cmp.Ordered](min, max T) Validator[T] {
+	return func(value T) error {
+		if value < min || value > max {
+			return fmt.Errorf("must be between %v and %v", min, max)
+		}
+		return nil
+	}
+}
+
+// OneOf checks if the value is one of the allowed values.
+func OneOf[T comparable](allowed ...T) Validator[T] {
+	return func(value T) error {
+		if !slices.Contains(allowed, value) {
+			return fmt.Errorf("must be one of %v", allowed)
+		}
+		return nil
+	}
 }

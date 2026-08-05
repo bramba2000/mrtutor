@@ -12,7 +12,7 @@ import (
 func TestOpen(t *testing.T) {
 	t.Run("Success when existing path", func(t *testing.T) {
 		path := filepath.Join(t.ArtifactDir(), "test.db")
-		db, err := sqlite.Open(t.Context(), path, nil)
+		db, err := sqlite.Open(t.Context(), sqlite.Options{Path: path})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -33,9 +33,25 @@ func TestOpen(t *testing.T) {
 	})
 	t.Run("Fail when non-existing dir", func(t *testing.T) {
 		path := filepath.Join(t.ArtifactDir(), "nonExisting", "test.db")
-		_, err := sqlite.Open(t.Context(), path, nil)
+		_, err := sqlite.Open(t.Context(), sqlite.Options{Path: path})
 		if err == nil {
 			t.Fatal("expected error when opening database in non-existing directory, got nil")
+		}
+	})
+	t.Run("Success with explicit ReadPoolSize", func(t *testing.T) {
+		path := filepath.Join(t.ArtifactDir(), "test.db")
+		db, err := sqlite.Open(t.Context(), sqlite.Options{Path: path, ReadPoolSize: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		if got := db.R.Stats().MaxOpenConnections; got != 1 {
+			t.Errorf("read pool MaxOpenConnections = %d, want 1", got)
 		}
 	})
 }
@@ -43,7 +59,7 @@ func TestOpen(t *testing.T) {
 func TestClose(t *testing.T) {
 	t.Run("Success when open", func(t *testing.T) {
 		path := filepath.Join(t.ArtifactDir(), "test.db")
-		db, err := sqlite.Open(t.Context(), path, nil)
+		db, err := sqlite.Open(t.Context(), sqlite.Options{Path: path})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +73,10 @@ func TestClose(t *testing.T) {
 func TestRunMigrations(t *testing.T) {
 	t.Run("Success when open db and correct migrations", func(t *testing.T) {
 		path := filepath.Join(t.ArtifactDir(), "test.db")
-		db, err := sqlite.Open(t.Context(), path, slog.New(slog.DiscardHandler))
+		db, err := sqlite.Open(t.Context(), sqlite.Options{
+			Path:   path,
+			Logger: slog.New(slog.DiscardHandler),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

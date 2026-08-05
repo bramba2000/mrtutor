@@ -9,7 +9,10 @@ import (
 
 func OpenTemp(t testing.TB) *sqlite.DB {
 	path := t.TempDir() + "/test.db"
-	db, err := sqlite.Open(t.Context(), path, slog.New(slog.DiscardHandler))
+	db, err := sqlite.Open(t.Context(), sqlite.Options{
+		Path:   path,
+		Logger: slog.New(slog.DiscardHandler),
+	})
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}

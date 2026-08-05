@@ -31,7 +31,7 @@ Do these first: cheap, independently reviewable, unblocked by everything else, a
 
 - [x] **#8** `cmd/api/http/codec.go:15-21` — no `http.MaxBytesReader`; request bodies are unbounded.
 - [x] **#10** `auth/service_test.go:83,93` — `mockPrincipalStore.Create` has a value receiver but mutates `m.count`; the increment is lost, so every principal gets `ID = 1` and overwrites `db[1]`. Fix the fixture and add a test that seeds two principals into one store (this is also why #2 was never caught).
-- [ ] **#12** `config/loaders.go:18,28` — `getDuration`/`getInt` swallow parse errors and silently return the default (e.g. `READ_POOL_SIZE=abc` → 4, no error). Superseded properly by the Phase 2 `Config` rework, but don't leave it silently broken in the meantime.
+- [x] **#12** `config/loaders.go:18,28` — `getDuration`/`getInt` swallow parse errors and silently return the default (e.g. `READ_POOL_SIZE=abc` → 4, no error). Closed by the Phase 2 `Config` rework: `config.Load` now records a parse or validation failure per env var into a `validation.Errors` and returns it, so a bad value fails startup (exit 2) instead of silently defaulting.
 - [x] Polish: `bodyDecoder` ignores trailing content (check `dec.More()`); no `Content-Type` check (415 for non-JSON); `validation.Email` leaks the raw `mail.ParseAddress` message, inconsistent with other validators; `validation.MinLength[T ~string | ~[]any]` can't accept typed slices; `errs.Domain` returns an unexported `*domainError` callers can't name; `cmd/api/main.go:57` shadows `cancel`.
 - [ ] Test gaps: `cmd/api/http/auth_test.go` is empty (0 bytes) — write handler-level unit tests once the `Service` seam exists (Phase 3); integration test calls handlers directly rather than through the mux — add a test that drives `/api/v1/...` through the real mux; `TestAuth` subtests share one DB with order dependence; assert the session cookie on successful login; `sqlite/db_test.go` touches disk without a `-short` gate.
 
@@ -49,11 +49,12 @@ Do these first: cheap, independently reviewable, unblocked by everything else, a
 
 ## Phase 2 — `Config` struct
 
-- [ ] Replace the package-level vars in `config/{app,db,server,loaders}.go` with a `Config` struct assembled by `Load(lookup func(string) (string, bool)) (Config, error)`.
-- [ ] Accumulate parse errors into a `validation.Errors` (already satisfies `errors.Is(err, errs.Invalid)` for free) instead of silently defaulting on bad values — closes **#12**.
-- [ ] Add an options struct for `sqlite.Open` (replacing the direct `config.ReadPoolSize` read at `sqlite/db.go:133,140-141`) and for the HTTP server (replacing the direct `config.LogLevel` read at `cmd/api/http/server.go:29`).
-- [ ] Delete the package-level vars in the same commit — only three consumers, no compatibility shim needed.
-- [ ] Verify: `go list -deps ./sqlite ./cmd/api/http | grep config` returns nothing.
+- [x] Replace the package-level vars in `config/{app,db,server,loaders}.go` with a `Config` struct assembled by `Load(lookup func(string) (string, bool)) (Config, error)`.
+- [x] Accumulate parse errors into a `validation.Errors` (already satisfies `errors.Is(err, errs.Invalid)` for free) instead of silently defaulting on bad values — closes **#12**.
+- [x] Add an options struct for `sqlite.Open` (replacing the direct `config.ReadPoolSize` read at `sqlite/db.go:133,140-141`) and for the HTTP server. The HTTP server options struct (`cmd/api/http/server.go:13-27`, `Config.LogLevel`) already landed in `55c5e77`, ahead of this phase; `sqlite.Open(ctx, sqlite.Options{Path, Logger, ReadPoolSize})` closes the remaining gap, defaulting `ReadPoolSize` to `DefaultReadPoolSize` (4) so `sqlite` stands alone.
+- [x] Delete the package-level vars in the same commit — only two live consumers by the time this landed (`cmd/api/run.go`, `sqlite/db.go`), no compatibility shim needed.
+- [x] Verify: `go list -deps ./sqlite ./cmd/api/http | grep config` returns nothing.
+- [x] Bonus, closed as part of this phase: `LOG_LEVEL` now accepts slog level names (`DEBUG`/`INFO`/`WARN`/`ERROR`) as well as the numeric form `Taskfile.yml` uses, fixing the silent-Info fallback described in §4.1 point 3; `LOG_FORMAT` went from dead config to an actual `text`/`json` selector; `SHUTDOWN_HARD_TIMEOUT` (declared, never consumed) was removed rather than migrated.
 
 ---
 
@@ -131,7 +132,7 @@ Auth is currently half-built: sessions are minted and never verified. `SessionSt
 ## Verification checklist (from the review, §9)
 
 - [ ] `sqlite` is a leaf: `go list -deps ./sqlite | grep mrtutor` → nothing.
-- [ ] `config` is not a library dependency: `go list -deps ./sqlite ./httpx | grep config` → nothing.
+- [x] `config` is not a library dependency: `go list -deps ./sqlite ./httpx | grep config` → nothing. (Verified today via `go list -deps ./sqlite ./cmd/api/http | grep config` — `httpx` doesn't exist until the Phase 3 rename; `cmd/api/http` is its current name and already imports neither `config` nor anything from it.)
 - [ ] Failures are visible: `DATABASE_FILE=/nonexistent/x.db go run ./cmd/api; echo $?` → non-zero.
 - [ ] Port conflict is fatal: run two instances on the same port — the second exits non-zero promptly.
 - [ ] No enumeration: login with an unknown user and with a wrong password return byte-identical status and body.

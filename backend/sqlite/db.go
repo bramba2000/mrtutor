@@ -12,9 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bramba2000/mrtutor/backend/config"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// DefaultReadPoolSize is used by Open when Options.ReadPoolSize is zero or
+// negative, so the package stands alone without requiring a caller to know
+// a sensible pool size.
+const DefaultReadPoolSize = 4
 
 //go:embed migrations/*.sql
 var EmbeddedMigrations embed.FS
@@ -98,14 +102,32 @@ func dsn(path string, write bool) (string, error) {
 	return url.String(), nil
 }
 
-// Given the path to the SQLite database, open a connection to it and return the *sql.DB object for both read and write operations.
-func Open(ctx context.Context, path string, logger *slog.Logger) (*DB, error) {
+// Options configures Open.
+type Options struct {
+	// Path is the filesystem path to the SQLite database file.
+	Path string
+	// Logger receives debug logging; a nil Logger falls back to slog.Default().
+	Logger *slog.Logger
+	// ReadPoolSize bounds the read connection pool. Zero or negative falls
+	// back to DefaultReadPoolSize.
+	ReadPoolSize int
+}
+
+// Open opens a connection to the SQLite database at opts.Path and returns
+// the *DB object for both read and write operations.
+func Open(ctx context.Context, opts Options) (*DB, error) {
+	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	logger = logger.With("component", "sqlite")
 
-	writeDSN, err := dsn(path, true)
+	readPoolSize := opts.ReadPoolSize
+	if readPoolSize <= 0 {
+		readPoolSize = DefaultReadPoolSize
+	}
+
+	writeDSN, err := dsn(opts.Path, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build write DSN: %w", err)
 	}
@@ -125,20 +147,20 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping write connection: %w", err)
 	}
 
-	readDSN, err := dsn(path, false)
+	readDSN, err := dsn(opts.Path, false)
 	if err != nil {
 		w.Close()
 		return nil, fmt.Errorf("failed to build read DSN: %w", err)
 	}
-	logger.Debug("Opening read connection", "dsn", readDSN, "readPoolSize", config.ReadPoolSize)
+	logger.Debug("Opening read connection", "dsn", readDSN, "readPoolSize", readPoolSize)
 
 	r, err := sql.Open("sqlite3", readDSN)
 	if err != nil {
 		w.Close()
 		return nil, fmt.Errorf("failed to open read connection: %w", err)
 	}
-	r.SetMaxIdleConns(config.ReadPoolSize)
-	r.SetMaxOpenConns(config.ReadPoolSize)
+	r.SetMaxIdleConns(readPoolSize)
+	r.SetMaxOpenConns(readPoolSize)
 	r.SetConnMaxIdleTime(time.Minute)
 
 	if err := r.PingContext(ctx); err != nil {
