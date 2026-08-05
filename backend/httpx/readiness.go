@@ -1,4 +1,4 @@
-package http
+package httpx
 
 import (
 	"net/http"
@@ -24,7 +24,7 @@ func (r *Readiness) Shutdown() {
 // Handler returns an HTTP handler that reports the readiness of the server.
 func (r *Readiness) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if r.Ready() {
+		if !r.Ready() {
 			http.Error(w, "shutting down", http.StatusServiceUnavailable)
 			return
 		}

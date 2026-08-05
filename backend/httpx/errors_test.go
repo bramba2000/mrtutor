@@ -1,4 +1,4 @@
-package http
+package httpx
 
 import (
 	"encoding/json"
@@ -36,23 +36,31 @@ func TestWriteError(t *testing.T) {
 			expectedMessage:    "invalid JSON",
 		},
 		{
-			// bodyDecoder sees io.EOF for an empty request body, but
-			// isJsonDecodingError only matches *json.SyntaxError and
-			// *json.UnmarshalTypeError, so this client-caused case falls
-			// through to a plain 500. Known gap, not intended behaviour.
-			name:               "empty body (known gap: should be 400, is 500)",
+			// BodyDecoder sees io.EOF for an empty request body.
+			// isJsonDecodingError matches it (defect #11), so this
+			// client-caused case is a 400, not a 500.
+			name:               "empty body",
 			err:                io.EOF,
-			expectedStatusCode: 500,
-			expectedCode:       "internal",
-			expectedMessage:    "internal error",
+			expectedStatusCode: 400,
+			expectedCode:       "invalid.json",
+			expectedMessage:    "invalid JSON",
 		},
 		{
-			// Same gap, for a body that ends mid-value.
-			name:               "truncated body (known gap: should be 400, is 500)",
+			// Same regression guard, for a body that ends mid-value.
+			name:               "truncated body",
 			err:                io.ErrUnexpectedEOF,
-			expectedStatusCode: 500,
-			expectedCode:       "internal",
-			expectedMessage:    "internal error",
+			expectedStatusCode: 400,
+			expectedCode:       "invalid.json",
+			expectedMessage:    "invalid JSON",
+		},
+		{
+			// BodyDecoder's Content-Type gate reports a distinct status and
+			// code from a JSON decoding failure.
+			name:               "content type not JSON",
+			err:                ErrContentTypeNotJSON,
+			expectedStatusCode: 415,
+			expectedCode:       "invalid.contentType",
+			expectedMessage:    "content type is not JSON",
 		},
 		{
 			name:               "not found",
@@ -136,7 +144,7 @@ func TestWriteError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest("GET", "/test", http.NoBody)
-			writeError(w, r, tc.err, slog.New(slog.NewTextHandler(t.Output(), nil)))
+			WriteError(w, r, tc.err, slog.New(slog.NewTextHandler(t.Output(), nil)))
 
 			if tc.expectedStatusCode != 0 && w.Code != tc.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, w.Code)
@@ -183,7 +191,7 @@ func TestWriteError(t *testing.T) {
 	}
 }
 
-// TestWriteErrorLogging covers writeError's logging: level and message are
+// TestWriteErrorLogging covers WriteError's logging: level and message are
 // chosen from the response's status class, and the log always carries the
 // request method, path, and the underlying error.
 func TestWriteErrorLogging(t *testing.T) {
@@ -192,7 +200,7 @@ func TestWriteErrorLogging(t *testing.T) {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/boom", http.NoBody)
 
-		writeError(w, r, errBoom, logs.logger)
+		WriteError(w, r, errBoom, logs.logger)
 
 		logs.requireLogged(t, "level=ERROR", "request failed", errBoom.Error(), http.MethodPost, "/boom")
 	})
@@ -203,13 +211,13 @@ func TestWriteErrorLogging(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/rejected", http.NoBody)
 
 		err := errs.Domain("notFound", "testing not found", errs.NotFound)
-		writeError(w, r, err, logs.logger)
+		WriteError(w, r, err, logs.logger)
 
 		logs.requireLogged(t, "level=INFO", "request rejected", err.Error(), http.MethodPost, "/rejected")
 	})
 }
 
-// TestWriteErrorWriter covers writeError's interaction with the
+// TestWriteErrorWriter covers WriteError's interaction with the
 // http.ResponseWriter itself: content type, and the cases where the response
 // cannot be written as intended. It uses recordingWriter rather than
 // httptest.ResponseRecorder because the latter pre-seeds Code to 200, making
@@ -220,7 +228,7 @@ func TestWriteErrorWriter(t *testing.T) {
 		w := newRecordingWriter()
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
-		writeError(w, r, errBoom, discardLogger())
+		WriteError(w, r, errBoom, discardLogger())
 
 		if got := w.Header().Get("Content-Type"); got != "application/json" {
 			t.Errorf("expected Content-Type %q, got %q", "application/json", got)
@@ -232,7 +240,7 @@ func TestWriteErrorWriter(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
-		writeError(w, r, errBoom, discardLogger())
+		WriteError(w, r, errBoom, discardLogger())
 
 		if w.status != http.StatusOK {
 			t.Errorf("expected the committed status %d to be retained, got %d", http.StatusOK, w.status)
@@ -245,7 +253,7 @@ func TestWriteErrorWriter(t *testing.T) {
 		logs := newCapturedLogs()
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
-		writeError(w, r, errBoom, logs.logger)
+		WriteError(w, r, errBoom, logs.logger)
 
 		logs.requireLogged(t, "failed to write error response", errWrite.Error())
 	})
@@ -254,7 +262,7 @@ func TestWriteErrorWriter(t *testing.T) {
 		w := newRecordingWriter()
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
-		writeError(w, r, errBoom, nil)
+		WriteError(w, r, errBoom, nil)
 
 		if w.status != http.StatusInternalServerError {
 			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)

@@ -1,4 +1,4 @@
-package http
+package httpx
 
 import (
 	"encoding/json"
@@ -13,8 +13,9 @@ import (
 func TestBodyDecoder(t *testing.T) {
 	t.Run("Success when body is valid JSON", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"alice","count":3}`))
+		r.Header.Set("Content-Type", "application/json")
 
-		decoded, err := bodyDecoder[payload](r)
+		decoded, err := BodyDecoder[payload](r)
 		if err != nil {
 			t.Fatal("failed to decode valid body", err)
 		}
@@ -29,8 +30,9 @@ func TestBodyDecoder(t *testing.T) {
 
 	t.Run("Success when body has unknown fields", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"alice","nope":true}`))
+		r.Header.Set("Content-Type", "application/json")
 
-		decoded, err := bodyDecoder[payload](r)
+		decoded, err := BodyDecoder[payload](r)
 		if err != nil {
 			t.Fatal("expected unknown fields to be ignored", err)
 		}
@@ -42,8 +44,9 @@ func TestBodyDecoder(t *testing.T) {
 
 	t.Run("Success when body has trailing content", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"first"}{"name":"second"}`))
+		r.Header.Set("Content-Type", "application/json")
 
-		decoded, err := bodyDecoder[payload](r)
+		decoded, err := BodyDecoder[payload](r)
 		if err != nil {
 			t.Fatal("expected trailing content to be ignored", err)
 		}
@@ -56,16 +59,18 @@ func TestBodyDecoder(t *testing.T) {
 
 	t.Run("Fail when body is malformed JSON", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":`))
+		r.Header.Set("Content-Type", "application/json")
 
-		if _, err := bodyDecoder[payload](r); err == nil {
+		if _, err := BodyDecoder[payload](r); err == nil {
 			t.Fatal("expected error when decoding malformed JSON, got nil")
 		}
 	})
 
 	t.Run("Fail when body is empty", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		r.Header.Set("Content-Type", "application/json")
 
-		_, err := bodyDecoder[payload](r)
+		_, err := BodyDecoder[payload](r)
 		if !errors.Is(err, io.EOF) {
 			t.Fatalf("expected io.EOF for an empty body, got %v", err)
 		}
@@ -73,8 +78,9 @@ func TestBodyDecoder(t *testing.T) {
 
 	t.Run("Fail when field type mismatches", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"count":"not a number"}`))
+		r.Header.Set("Content-Type", "application/json")
 
-		_, err := bodyDecoder[payload](r)
+		_, err := BodyDecoder[payload](r)
 		if _, ok := errors.AsType[*json.UnmarshalTypeError](err); !ok {
 			t.Fatalf("expected *json.UnmarshalTypeError, got %v", err)
 		}
@@ -90,8 +96,9 @@ func TestBodyDecoder(t *testing.T) {
 
 	t.Run("Fail when body is empty and zero value is returned", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		r.Header.Set("Content-Type", "application/json")
 
-		decoded, err := bodyDecoder[payload](r)
+		decoded, err := BodyDecoder[payload](r)
 		if err == nil {
 			t.Fatal("expected error for an empty body, got nil")
 		}
@@ -100,14 +107,33 @@ func TestBodyDecoder(t *testing.T) {
 			t.Errorf("expected the zero value alongside the error, got %+v", decoded)
 		}
 	})
+
+	t.Run("Fail when Content-Type is absent", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"alice"}`))
+
+		_, err := BodyDecoder[payload](r)
+		if !errors.Is(err, ErrContentTypeNotJSON) {
+			t.Fatalf("expected ErrContentTypeNotJSON, got %v", err)
+		}
+	})
+
+	t.Run("Fail when Content-Type is not JSON", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"alice"}`))
+		r.Header.Set("Content-Type", "text/plain")
+
+		_, err := BodyDecoder[payload](r)
+		if !errors.Is(err, ErrContentTypeNotJSON) {
+			t.Fatalf("expected ErrContentTypeNotJSON, got %v", err)
+		}
+	})
 }
 
 func TestNoContent(t *testing.T) {
 	t.Run("Success when value is discarded", func(t *testing.T) {
 		w := newRecordingWriter()
 
-		if err := noContent(w, payload{Name: "ignored"}); err != nil {
-			t.Fatal("noContent should never fail", err)
+		if err := NoContent(w, payload{Name: "ignored"}); err != nil {
+			t.Fatal("NoContent should never fail", err)
 		}
 
 		if w.status != http.StatusNoContent {
@@ -126,7 +152,7 @@ func TestOk(t *testing.T) {
 	t.Run("Success when value is marshalable", func(t *testing.T) {
 		w := newRecordingWriter()
 
-		if err := ok(w, payload{Name: "alice", Count: 3}); err != nil {
+		if err := OK(w, payload{Name: "alice", Count: 3}); err != nil {
 			t.Fatal("failed to encode a valid value", err)
 		}
 
@@ -148,7 +174,7 @@ func TestCreated(t *testing.T) {
 	t.Run("Success when value is marshalable", func(t *testing.T) {
 		w := newRecordingWriter()
 
-		if err := created(w, payload{Name: "alice", Count: 3}); err != nil {
+		if err := Created(w, payload{Name: "alice", Count: 3}); err != nil {
 			t.Fatal("failed to encode a valid value", err)
 		}
 

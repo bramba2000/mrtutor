@@ -121,16 +121,18 @@ func NewAuthHandler(svc auth.Service, logger *slog.Logger) authHandler   // …f
 
 An exported constructor returning an unexported type gives callers a value they cannot name in a signature or struct field. And `NewAuthHandler` takes `auth.Service` as a **concrete value** — there is no seam for a fake, which is precisely why `cmd/api/http/auth_test.go` is a **0-byte file**. The handlers' cookie logic, status codes, and error mapping have no unit coverage at all; the only exercise they get is an integration test requiring a real database.
 
+**Status: resolved (Phase 3), with one correction.** The handler moved to `auth/authhttp` (`NewHandler` returning the now-exported `Handler`) behind a consumer-side `authhttp.Service` interface, satisfied structurally by `auth.Service` — no adapter. `auth/authhttp/handler_test.go` covers cookie attributes, status codes, and error mapping against a fake `Service`. Correction: `cmd/api/http/auth_test.go` was never a 0-byte file — the path does not exist on disk at all, here or in `docs/architecture-tasks.md` §0.3's test-gaps line, which repeats the same claim.
+
 ### 4.6 Domain models carry transport concerns
 
 `auth/models.go` puts JSON tags on domain types. `Session.TokenHash [32]byte` is tagged `json:"id"` — and `[32]byte` marshals as an array of 32 integers, so marshalling a `Session` would put the session hash on the wire. `Principal.PasswordHash` depends on `json:"-"` to stay private, which means the domain model doubles as the wire model and every field added later is exposed by default. The `encode` parameter of `wrap` is already the right seam for response DTOs.
 
 ### 4.7 Smaller points
 
-- **`isShuttingDown atomic.Bool`** is a package-level global in `main` (`main.go:18`) read by `healthHandler` (`routes.go:22`) — process state shared through a global rather than injected.
-- **Liveness and readiness are conflated** on one `GET /health`.
-- **`cmd/api/http` is named `http`**, forcing an alias at every import site — and the tree already contains two spellings, `ehttp` (`main.go:13`) and `handlers` (`test/integration/auth_test.go:15`).
-- **Dead code:** `auth.Stores` and `auth.UnitOfWork` (zero implementations), `sqlite.DB.InTx` (zero callers), `ok`/`created`/`noContent` (tests only), `Session.RevokedAt` and `sessions.revoked_at` (never read or written).
+- **`isShuttingDown atomic.Bool`** is a package-level global in `main` (`main.go:18`) read by `healthHandler` (`routes.go:22`) — process state shared through a global rather than injected. **Status: resolved (Phase 3).** Both the global and `healthHandler`/`GET /health` are deleted; nothing wrote the flag by the time this landed (a `Readiness` value introduced in Phase 1 had already superseded it), so `/health` was unconditionally 200 — a probe that cannot fail is worse than no probe.
+- **Liveness and readiness are conflated** on one `GET /health`. **Status: resolved (Phase 1/3).** Split into `/livez` and `/readyz`; the latter was mounted at `/healthz` until Phase 3 renamed it, and its handler had an inverted branch (503 while healthy, 200 while draining) until Phase 3 fixed that too — see the new defect recorded in `docs/architecture-tasks.md`'s Phase 3 section.
+- **`cmd/api/http` is named `http`**, forcing an alias at every import site — and the tree already contains two spellings, `ehttp` (`main.go:13`) and `handlers` (`test/integration/auth_test.go:15`). **Status: resolved (Phase 3).** Renamed to `httpx`; a third spelling this bullet didn't catch, `httpstdlib` (aliasing `net/http` in `server_test.go` to avoid the collision), is also gone. No import site of the HTTP kit or `auth/authhttp` uses an alias.
+- **Dead code:** `auth.Stores` and `auth.UnitOfWork` (zero implementations), `sqlite.DB.InTx` (zero callers), `ok`/`created`/`noContent` (tests only), `Session.RevokedAt` and `sessions.revoked_at` (never read or written). **Partial update:** `ok`/`created`/`noContent` (now exported `OK`/`Created`/`NoContent`) are no longer tests-only — `Created` is live in `authhttp.NewHandler`'s Register path since Phase 3. The rest is unchanged and awaits Phase 6/7.
 
 ---
 
@@ -223,23 +225,30 @@ No metrics, no tracing, no `net/http/pprof`, no request IDs — so there is no w
 | 4 | `cmd/api/http/server.go:39-46` | **Listen error swallowed** → live process serving nothing (§5.5). |
 | 5 | `auth/service.go:108-139` | **`Register` is not atomic** → orphaned accounts that cannot be retried (§5.3). |
 | 6 | `cmd/api/http/server.go:26-33` | **No server timeouts** — Slowloris exposure (§5.6). |
-| 7 | `cmd/api/http/auth.go:25-29,39-44` | **Cookie hardening.** Neither cookie sets `Secure`, `SameSite`, or `Path`. Login sets no `Expires`/`MaxAge` (browser-session cookie) while Register sets 7 days — inconsistent lifetime for the same credential. |
-| 8 | `cmd/api/http/codec.go:15-21` | **No `http.MaxBytesReader`** — request bodies are unbounded. |
+| 7 | `cmd/api/http/auth.go:25-29,39-44` | **Cookie hardening.** Neither cookie sets `Secure`, `SameSite`, or `Path`. Login sets no `Expires`/`MaxAge` (browser-session cookie) while Register sets 7 days — inconsistent lifetime for the same credential. **Status: resolved (Phase 3).** Also fixed in the same pass: `MaxAge` was computed as `int(sessionCookieMaxAge)` on a `time.Duration`, i.e. nanoseconds (604800000000000) fed to a seconds field — a defect this table never caught. `Secure` is now an `authhttp.Config` field sourced from `APP_MODE`, not hardcoded, so local dev over plain HTTP still receives the cookie. |
+| 8 | `cmd/api/http/codec.go:15-21` | **No `http.MaxBytesReader`** — request bodies are unbounded. Still open; scheduled for Phase 4's middleware set alongside the other body-size and timeout concerns, not fixed piecemeal. |
 | 9 | `sqlite/auth.go:35` | **PII in logs.** The op string is `"get principal by token "+usernameOrEmail`, and `writeError` logs the error on every rejected request — so every failed login writes the submitted username or email to the log. |
 | 10 | `auth/service_test.go:83,93` | **Broken test fixture.** `mockPrincipalStore.Create` has a **value receiver** but does `m.count += 1`; the increment is discarded, so every principal gets `ID = 1` and each call overwrites `db[1]`. It passes only because no test seeds two principals into one store. The same fake returns the *correct* `auth.ErrPrincipalNotFound` — which is exactly why defect #2 was never caught by a unit test. |
-| 11 | `cmd/api/http/errors.go:94-98` | **Empty or truncated body → 500 instead of 400.** `isJsonDecodingError` matches only `*json.SyntaxError` and `*json.UnmarshalTypeError`, not `io.EOF` / `io.ErrUnexpectedEOF`. `curl -X POST /api/v1/auth/login` with no body returns 500 today. Acknowledged in comments at `errors_test.go:39-56`. |
+| 11 | `cmd/api/http/errors.go:94-98` | **Empty or truncated body → 500 instead of 400.** `isJsonDecodingError` matches only `*json.SyntaxError` and `*json.UnmarshalTypeError`, not `io.EOF` / `io.ErrUnexpectedEOF`. `curl -X POST /api/v1/auth/login` with no body returns 500 today. **Status: resolved** (landed ahead of Phase 3, per `docs/architecture-tasks.md`). The comment pointer to `errors_test.go:39-56` is now stale: those two cases named `"(known gap: should be 400, is 500)"` still asserted the *pre-fix* 500, leaving `go test ./...` red until Phase 3 corrected them to the 400/`invalid.json` the fix already produced. |
 | 12 | `config/loaders.go:18,28` | **Parse errors swallowed** — malformed values silently become defaults (§4.1). |
 | 13 | `sqlite/auth.go:54` | `SessionStore.Create` passes `auth.ErrSessionNotFound` as the *notFound* sentinel and `nil` for conflict — backwards for an `INSERT`. A session PK collision degrades to a 500. |
 | 14 | `sqlite/errors.go:28` | Fallback uses `%v`, not `%w`, so driver errors are unwrappable and `errors.Is` is broken for callers. `writeError` already refuses to expose non-public messages, so `%w` is safe here and strictly better for logs. |
 | 15 | `sqlite/db.go:56` | Rollback failure formatted with `%v`, losing the chain. `errors.Join` preserves `errors.Is` on both errors. |
 | 16 | `sqlite/errors.go:23` | Conflict detection matches the coarse `sqlite3.ErrConstraint`, so UNIQUE, FK, and CHECK violations are indistinguishable — a duplicate email reports "principal already exists" without naming the field. The extended codes (`ErrConstraintUnique`, `ErrConstraintForeignKey`) are the discriminators. |
-| 17 | `cmd/api/http/wrap.go:47` | **Validation fails open.** The `Validable` check is a runtime type assertion on `In`, so a `Validate` declared on `*T` is silently skipped when `In` is `T`. Documented and tested — but a missing validator should be a compile error, not a no-op. |
+| 17 | `cmd/api/http/wrap.go:47` | **Validation fails open.** The `Validable` check is a runtime type assertion on `In`, so a `Validate` declared on `*T` is silently skipped when `In` is `T`. Documented and tested — but a missing validator should be a compile error, not a no-op. **Status: resolved (Phase 3).** `Wrap[In Validable, Out any]` constrains `In` directly; a type whose `Validate` is pointer-receiver-only now fails to compile against `Wrap`, verified via `go vet`. `WrapUnvalidated`/`WrapNoInput` cover inputs with nothing to validate. |
 | 18 | `sqlite/auth.go:73-81` | `principalFromDB` silently drops `UpdatedAt`; nothing writes the column either. |
-| 19 | `cmd/api/http/auth.go:45` | Register returns **200**, not 201, and `RegisterOut.Principal` is computed then discarded. The `created` helper exists and is unused. |
+| 19 | `cmd/api/http/auth.go:45` | Register returns **200**, not 201, and `RegisterOut.Principal` is computed then discarded. The `created` helper exists and is unused. **Status: resolved (Phase 3).** Returns 201 with `out.Principal` as the body (`PasswordHash` stays off the wire via its existing `json:"-"` tag); `RegisterOut` itself is never encoded directly, since it carries no JSON tags and would otherwise put the session token in the body next to the cookie. |
 
 **Lower-severity polish.** `bodyDecoder` ignores trailing content (`{"a":1}{"b":2}` is accepted — check `dec.More()`); no `Content-Type` check, so non-JSON should be 415; `validation.Email` returns the raw `mail.ParseAddress` message (`mail: missing '@' or angle-addr`), which is client-visible in the `fields` array and stylistically inconsistent with `"is required"` / `"must not be blank"`; `validation.MinLength[T ~string | ~[]any]` cannot accept `[]string` or any other typed slice, so it is string-only in practice; `errs.Domain` returns an unexported `*domainError` that callers cannot name; `cmd/api/main.go:57` shadows `cancel` and pairs it with an earlier explicit `cancel()`.
 
-**Test coverage gaps.** `cmd/api/http/auth_test.go` is empty. The integration test calls handlers directly rather than through the mux, so `RegisterRoutes`, `StripPrefix`, and method routing are **never exercised**. `TestAuth` subtests share one database with order dependence and would break under `t.Parallel()`. The successful-login case never asserts the cookie. `sqlite/db_test.go` touches disk without a `-short` gate.
+**Test coverage gaps.** ~~`cmd/api/http/auth_test.go` is empty.~~ **Correction:** that path was never a 0-byte file; it does not exist on disk. **Status: resolved (Phase 3)** for the handler-level gap specifically — `auth/authhttp/handler_test.go` now covers cookie attributes, status codes, and error mapping against a fake `Service`, and the integration suite's successful-login case now asserts the cookie's `HttpOnly`/`Path`/`MaxAge` (closing the "never asserts the cookie" item below). Still open: the integration test calls handlers directly rather than through the mux, so `RegisterRoutes`, `StripPrefix`, and method routing are **never exercised**; `TestAuth` subtests share one database with order dependence and would break under `t.Parallel()`; `sqlite/db_test.go` touches disk without a `-short` gate.
+
+### Found after the review, while implementing Phase 3
+
+Not in the 19-item inventory above — these surfaced only once the Phase 3 file moves were underway, and are recorded here rather than folded into the numbered list, so "19 items" stays an accurate description of what this review originally found.
+
+- **Readiness handler inverted** (`cmd/api/http/readiness.go`, now `httpx/readiness.go`). `Handler()` read `if r.Ready() { 503 }` — serving 503 while healthy and 200 while draining, the exact opposite of a readiness probe's contract. Zero test coverage before Phase 3 added `httpx/readiness_test.go`.
+- **Two "resolved" defects had reopened but untested code paths.** #7's cookie hardening and #19's Register status code were both marked done in `docs/architecture-tasks.md` before Phase 3, but neither had actually landed in the code — #7's `MaxAge` conversion bug (see the table row above) and #19's 204-vs-200-vs-201 three-way disagreement between the code, the doc, and the integration test were only caught because Phase 3 touched those files again. The standing lesson, recorded in `docs/architecture-tasks.md`'s Phase 0.3 notes: a fix must update the test that documented the bug, in the same commit — two packages' test suites were left red for a full phase because the Content-Type gate and defect #11's fix landed without that.
 
 ---
 
@@ -369,15 +378,20 @@ Each feature keeps its own narrow `UnitOfWork` for single-feature atomicity, so 
 // rather than depending on auth.Service directly, mirroring the convention
 // auth.PrincipalStore already establishes — and this is what makes these
 // handlers unit-testable against a fake.
+//
+// Only Login and Register exist on auth.Service as of Phase 3, when this
+// interface was introduced; Authenticate and Logout are Phase 7 additions.
+// Declaring all four from the start — as an earlier draft of this section
+// did — means nothing satisfies the interface until Phase 7 lands, breaking
+// the Phase 3-through-6 build. Grow the interface with the domain type, not
+// ahead of it.
 type Service interface {
 	Login(ctx context.Context, in auth.LoginIn) (string, error)
 	Register(ctx context.Context, in auth.RegisterIn) (auth.RegisterOut, error)
-	Authenticate(ctx context.Context, token string) (auth.Principal, error)
-	Logout(ctx context.Context, token string) error
 }
 ```
 
-`auth.Service` satisfies this structurally — no adapter, no change to the domain. The empty `auth_test.go` becomes writable.
+`auth.Service` satisfies this structurally — no adapter, no change to the domain. `auth/authhttp/handler_test.go` (Phase 3) is what that seam unblocks — not `cmd/api/http/auth_test.go`, a path that never existed on disk.
 
 **6. Session middleware lands in the only place it can.** It imports `auth`, so it belongs in `auth/authhttp`. If it lived in `httpx`, then `httpx` would import `auth` and become the new hub. Feature-first is what keeps the kit domain-free.
 
@@ -425,6 +439,8 @@ func WrapUnvalidated[In, Out any](...) http.HandlerFunc
 ```
 
 `LoginIn` and `RegisterIn` already have value-receiver `Validate()`, so both compile unchanged. **Do this before the rename, not after** (§7.6). Then `git mv cmd/api/http httpx`, export the kit, and move `auth.go` straight to `auth/authhttp` so it moves once.
+
+**Status: done, as planned above, plus two deviations from this section's original wording and one unplanned repair.** `authhttp.Service` ships with `Login`/`Register` only — the four-method version this section originally sketched (see §7.5 point 5's corrected code block) doesn't compile until Phase 7 adds `Authenticate`/`Logout` to `auth.Service`. The planned `Register(*httpx.Router)` method for Phase 5 is renamed `Mount` to avoid colliding with `authhttp.Handler.Register`, the field holding the register handler. Unplanned: `go test ./...` was red on entry to this phase in two packages, for reasons unrelated to the rename — a Content-Type gate and defect #11's fix had landed without updating the tests that encoded the pre-fix behaviour. Phase 3 repaired both before doing the move, so the moves stayed pure renames as intended.
 
 **Phase 4 — middleware and router.** A `Middleware func(http.Handler) http.Handler` chain plus a thin `Router` over `ServeMux` adding middleware scoping, which `ServeMux` has no notion of. Purely additive. Two details that are easy to get wrong:
 

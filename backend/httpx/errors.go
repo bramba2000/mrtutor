@@ -1,4 +1,4 @@
-package http
+package httpx
 
 import (
 	"encoding/json"
@@ -28,12 +28,12 @@ type publicError interface {
 	Error() string
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, err error, logger *slog.Logger) {
+func WriteError(w http.ResponseWriter, r *http.Request, err error, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 
-	status := statusFor(err)
+	status := StatusFor(err)
 
 	if status >= 500 {
 		logger.Error("request failed", "error", err, "method", r.Method, "url", r.URL.Path)
@@ -75,7 +75,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error, logger *slog.
 	}
 }
 
-func statusFor(err error) int {
+func StatusFor(err error) int {
 	switch {
 	case errors.Is(err, errs.NotFound):
 		return http.StatusNotFound

@@ -1,14 +1,14 @@
-package http_test
+package httpx_test
 
 import (
 	"context"
 	"log/slog"
 	"net"
-	httpstdlib "net/http"
+	"net/http"
 	"testing"
 	"time"
 
-	"github.com/bramba2000/mrtutor/backend/cmd/api/http"
+	"github.com/bramba2000/mrtutor/backend/httpx"
 	"golang.org/x/net/nettest"
 )
 
@@ -41,7 +41,7 @@ func TestServer_Run(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var shutdownChan chan struct{} = make(chan struct{})
 			var errChan chan error = make(chan error, 1)
-			srv := http.NewServer(http.Config{
+			srv := httpx.NewServer(httpx.Config{
 				Address:         tc.address,
 				Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
 				LogLevel:        slog.LevelDebug,
@@ -144,7 +144,7 @@ func TestServer_Serve(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var shutdownChan chan struct{} = make(chan struct{})
 			var ln net.Listener = tc.listner(t)
-			srv := http.NewServer(http.Config{
+			srv := httpx.NewServer(httpx.Config{
 				Address:         ln.Addr().String(),
 				Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
 				LogLevel:        slog.LevelDebug,
@@ -197,16 +197,16 @@ func TestServer_Serve(t *testing.T) {
 			handlerDelay    = 100 * time.Millisecond
 		)
 		handlerStarted := make(chan struct{})
-		srv := http.NewServer(http.Config{
+		srv := httpx.NewServer(httpx.Config{
 			Address:         ln.Addr().String(),
 			Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
 			LogLevel:        slog.LevelDebug,
 			ShutdownTimeout: shutdownTimeout,
-			Handler: httpstdlib.HandlerFunc(func(w httpstdlib.ResponseWriter, r *httpstdlib.Request) {
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				close(handlerStarted)
 				// Finishes well within shutdownTimeout, so a graceful drain should let it complete.
 				time.Sleep(handlerDelay)
-				w.WriteHeader(httpstdlib.StatusOK)
+				w.WriteHeader(http.StatusOK)
 			}),
 		})
 
@@ -226,7 +226,7 @@ func TestServer_Serve(t *testing.T) {
 		}
 		resultChan := make(chan result, 1)
 		go func() {
-			resp, err := httpstdlib.Get("http://" + ln.Addr().String())
+			resp, err := http.Get("http://" + ln.Addr().String())
 			if err != nil {
 				resultChan <- result{err: err}
 				return
@@ -256,8 +256,8 @@ func TestServer_Serve(t *testing.T) {
 			if res.err != nil {
 				t.Fatalf("In-flight request failed: %v", res.err)
 			}
-			if res.status != httpstdlib.StatusOK {
-				t.Errorf("In-flight request status = %d, want %d", res.status, httpstdlib.StatusOK)
+			if res.status != http.StatusOK {
+				t.Errorf("In-flight request status = %d, want %d", res.status, http.StatusOK)
 			}
 		case <-t.Context().Done():
 			t.Fatalf("Test timed out waiting for the in-flight request to complete")
@@ -272,12 +272,12 @@ func TestServer_Serve(t *testing.T) {
 
 		const shutdownTimeout = 100 * time.Millisecond
 		handlerStarted := make(chan struct{})
-		srv := http.NewServer(http.Config{
+		srv := httpx.NewServer(httpx.Config{
 			Address:         ln.Addr().String(),
 			Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
 			LogLevel:        slog.LevelDebug,
 			ShutdownTimeout: shutdownTimeout,
-			Handler: httpstdlib.HandlerFunc(func(w httpstdlib.ResponseWriter, r *httpstdlib.Request) {
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				close(handlerStarted)
 				// Outlives shutdownTimeout so the graceful drain can never finish in time.
 				time.Sleep(10 * shutdownTimeout)
@@ -298,7 +298,7 @@ func TestServer_Serve(t *testing.T) {
 		// handler before triggering shutdown, so the connection is genuinely
 		// in-flight (not a race against a request that hasn't been sent yet).
 		go func() {
-			resp, err := httpstdlib.Get("http://" + ln.Addr().String())
+			resp, err := http.Get("http://" + ln.Addr().String())
 			if err == nil {
 				resp.Body.Close()
 			}

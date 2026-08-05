@@ -11,8 +11,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	ehttp "github.com/bramba2000/mrtutor/backend/cmd/api/http"
+	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/config"
+	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
 
@@ -49,13 +50,15 @@ func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, 
 	mux := http.NewServeMux()
 	svcs := createServices(db)
 
-	RegisterRoutes(svcs, mux, logger)
+	RegisterRoutes(svcs, mux, logger, authhttp.Config{
+		Secure: cfg.AppMode == config.AppModeProd,
+	})
 
-	readiness := ehttp.Readiness{}
-	mux.Handle("/healthz", readiness.Handler())
-	mux.Handle("/livez", ehttp.Liveness())
+	readiness := httpx.Readiness{}
+	mux.Handle("/readyz", readiness.Handler())
+	mux.Handle("/livez", httpx.Liveness())
 
-	srv := ehttp.NewServer(ehttp.Config{
+	srv := httpx.NewServer(httpx.Config{
 		Address:         cfg.Server.Address(),
 		Handler:         mux,
 		Logger:          logger,

@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync/atomic"
 
 	"github.com/bramba2000/mrtutor/backend/errs"
 )
-
-var isShuttingDown atomic.Bool
 
 func main() {
 	err := run(context.Background(), os.Stderr, os.LookupEnv)

@@ -1,4 +1,4 @@
-package http
+package httpx
 
 import (
 	"context"
@@ -16,7 +16,18 @@ import (
 // ctxKey marks the value used to prove the request context reaches the handler.
 type ctxKey struct{}
 
-func TestWrap(t *testing.T) {
+// Compile-time proof of defect #17's fix: Validate on the value receiver
+// satisfies Validable, so validableValue{} implements it directly; Validate
+// on the pointer receiver only satisfies Validable through *validablePointer.
+// A bare validablePointer{} does not implement Validable, so it cannot be
+// passed here — which is exactly what makes Wrap[validablePointer] fail to
+// compile if anyone tries it.
+var (
+	_ Validable = validableValue{}
+	_ Validable = &validablePointer{}
+)
+
+func TestWrapUnvalidated(t *testing.T) {
 	t.Run("Success when decode, handler and encode succeed", func(t *testing.T) {
 		w := newRecordingWriter()
 		gotPath := ""
@@ -31,7 +42,7 @@ func TestWrap(t *testing.T) {
 			return payload{Name: in.Name, Count: 7}, nil
 		}
 
-		h := wrap(decode, fn, ok[payload], discardLogger())
+		h := WrapUnvalidated(decode, fn, OK[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/principals", nil))
 
 		if gotPath != "/principals" {
@@ -61,7 +72,7 @@ func TestWrap(t *testing.T) {
 		ctx := context.WithValue(t.Context(), ctxKey{}, "carried")
 		r := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
 
-		h := wrap(decodeZero, fn, noContent[payload], discardLogger())
+		h := WrapUnvalidated(decodeZero, fn, NoContent[payload], discardLogger())
 		h(w, r)
 
 		if gotValue != "carried" {
@@ -85,13 +96,13 @@ func TestWrap(t *testing.T) {
 			return nil
 		}
 
-		h := wrap(decode, fn, encode, discardLogger())
+		h := WrapUnvalidated(decode, fn, encode, discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		// errBoom is unclassified, so it falls through to the 500 default; see
-		// TestWrap/"Fail when decode returns a classified error" for the case
-		// that proves wrap forwards the error faithfully instead of flattening
-		// it to a fixed status.
+		// "Fail when decode returns a classified error" for the case that
+		// proves WrapUnvalidated forwards the error faithfully instead of
+		// flattening it to a fixed status.
 		if w.status != http.StatusInternalServerError {
 			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 		}
@@ -110,16 +121,97 @@ func TestWrap(t *testing.T) {
 			return payload{}, errs.Domain("bad", "bad input", errs.Invalid)
 		}
 
-		h := wrap(decode, handlerZero, noContent[payload], discardLogger())
+		h := WrapUnvalidated(decode, handlerZero, NoContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
-		// Proves wrap hands the decode error to writeError untouched, rather
-		// than mapping every decode failure to a fixed status itself.
+		// Proves WrapUnvalidated hands the decode error to WriteError
+		// untouched, rather than mapping every decode failure to a fixed
+		// status itself.
 		if w.status != http.StatusBadRequest {
 			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
 		}
 	})
 
+	t.Run("Success when In is Validable but Validate is never called", func(t *testing.T) {
+		w := newRecordingWriter()
+		calls := 0
+
+		// validableValue satisfies Validable, but WrapUnvalidated has no
+		// business knowing that — it must skip validation unconditionally,
+		// unlike Wrap. This is the behavioural line between the two.
+		decode := func(r *http.Request) (validableValue, error) {
+			return validableValue{err: errBoom, calls: &calls}, nil
+		}
+		fn := func(ctx context.Context, _ validableValue) (payload, error) {
+			return payload{}, nil
+		}
+
+		h := WrapUnvalidated(decode, fn, NoContent[payload], discardLogger())
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		if calls != 0 {
+			t.Errorf("expected Validate not to be called, got %d calls", calls)
+		}
+		if w.status != http.StatusNoContent {
+			t.Errorf("expected status %d, got %d", http.StatusNoContent, w.status)
+		}
+	})
+
+	t.Run("Fail when handler returns an error", func(t *testing.T) {
+		w := newRecordingWriter()
+		encodeCalled := false
+
+		fn := func(ctx context.Context, _ payload) (payload, error) {
+			return payload{}, errBoom
+		}
+		encode := func(w http.ResponseWriter, _ payload) error {
+			encodeCalled = true
+			return nil
+		}
+
+		h := WrapUnvalidated(decodeZero, fn, encode, discardLogger())
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		if w.status != http.StatusInternalServerError {
+			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
+		}
+		if encodeCalled {
+			t.Error("expected the encoder not to run after a handler failure")
+		}
+	})
+
+	t.Run("Fail when encode returns an error", func(t *testing.T) {
+		w := newRecordingWriter()
+
+		encode := func(w http.ResponseWriter, _ payload) error {
+			return errBoom
+		}
+
+		h := WrapUnvalidated(decodeZero, handlerZero, encode, discardLogger())
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		if w.status != http.StatusInternalServerError {
+			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
+		}
+	})
+
+	t.Run("Success when logger is nil and the handler fails", func(t *testing.T) {
+		w := newRecordingWriter()
+
+		fn := func(ctx context.Context, _ payload) (payload, error) {
+			return payload{}, errBoom
+		}
+
+		h := WrapUnvalidated(decodeZero, fn, NoContent[payload], nil)
+		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
+
+		if w.status != http.StatusInternalServerError {
+			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
+		}
+	})
+}
+
+func TestWrap(t *testing.T) {
 	t.Run("Fail when input validation fails", func(t *testing.T) {
 		w := newRecordingWriter()
 		calls := 0
@@ -134,11 +226,11 @@ func TestWrap(t *testing.T) {
 			return payload{}, nil
 		}
 
-		h := wrap(decode, fn, noContent[payload], discardLogger())
+		h := Wrap(decode, fn, NoContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
-		// A bare Validate error is classified as errs.Invalid by wrap itself
-		// (not by writeError), guaranteeing a 400 regardless of what the
+		// A bare Validate error is classified as errs.Invalid by Wrap itself
+		// (not by WriteError), guaranteeing a 400 regardless of what the
 		// caller's Validate returns.
 		if w.status != http.StatusBadRequest {
 			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
@@ -162,12 +254,12 @@ func TestWrap(t *testing.T) {
 			return payload{}, nil
 		}
 
-		h := wrap(decode, fn, noContent[payload], discardLogger())
+		h := Wrap(decode, fn, NoContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		// validation.Errors already reports Is(errs.Invalid) (see
-		// validation/errors.go), so wrap's classification must not rewrap it —
-		// doing so would sever the type chain writeError relies on to recover
+		// validation/errors.go), so Wrap's classification must not rewrap it —
+		// doing so would sever the type chain WriteError relies on to recover
 		// the per-field detail.
 		if w.status != http.StatusBadRequest {
 			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
@@ -194,7 +286,7 @@ func TestWrap(t *testing.T) {
 			return payload{}, nil
 		}
 
-		h := wrap(decode, fn, noContent[payload], discardLogger())
+		h := Wrap(decode, fn, NoContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		if calls != 1 {
@@ -208,35 +300,15 @@ func TestWrap(t *testing.T) {
 		}
 	})
 
-	t.Run("Success when Validate is declared on the pointer type and input is a value", func(t *testing.T) {
-		w := newRecordingWriter()
-		calls := 0
-		fnCalled := false
-
-		// validablePointer declares Validate on *validablePointer, which is not in
-		// the method set of the value type. any(in).(Validable) therefore fails and
-		// validation is skipped entirely, despite Validate returning an error.
-		decode := func(r *http.Request) (validablePointer, error) {
-			return validablePointer{err: errBoom, calls: &calls}, nil
-		}
-		fn := func(ctx context.Context, _ validablePointer) (payload, error) {
-			fnCalled = true
-			return payload{}, nil
-		}
-
-		h := wrap(decode, fn, noContent[payload], discardLogger())
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		if calls != 0 {
-			t.Errorf("expected Validate to be skipped, got %d calls", calls)
-		}
-		if !fnCalled {
-			t.Error("expected the handler to run when validation is skipped")
-		}
-		if w.status != http.StatusNoContent {
-			t.Errorf("expected status %d, got %d", http.StatusNoContent, w.status)
-		}
-	})
+	// There used to be a subtest here proving that Wrap silently skipped
+	// validation when Validate was declared on the pointer type but the
+	// decoded input was a value (validablePointer, not *validablePointer).
+	// That was defect #17: a Validate a caller believed was enforced could
+	// be skipped entirely by a type mismatch invisible at the call site.
+	// Under Wrap[In Validable], that call no longer compiles — Wrap can only
+	// be instantiated with a type that already implements Validable, so the
+	// mismatch is caught before the program runs. Do not re-add the subtest;
+	// the fix is that it cannot exist.
 
 	t.Run("Fail when Validate is declared on the pointer type and input is a pointer", func(t *testing.T) {
 		w := newRecordingWriter()
@@ -251,7 +323,7 @@ func TestWrap(t *testing.T) {
 			return payload{}, nil
 		}
 
-		h := wrap(decode, fn, noContent[payload], discardLogger())
+		h := Wrap(decode, fn, NoContent[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
 
 		if calls != 1 {
@@ -264,59 +336,6 @@ func TestWrap(t *testing.T) {
 			t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.status)
 		}
 	})
-
-	t.Run("Fail when handler returns an error", func(t *testing.T) {
-		w := newRecordingWriter()
-		encodeCalled := false
-
-		fn := func(ctx context.Context, _ payload) (payload, error) {
-			return payload{}, errBoom
-		}
-		encode := func(w http.ResponseWriter, _ payload) error {
-			encodeCalled = true
-			return nil
-		}
-
-		h := wrap(decodeZero, fn, encode, discardLogger())
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		if w.status != http.StatusInternalServerError {
-			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
-		}
-		if encodeCalled {
-			t.Error("expected the encoder not to run after a handler failure")
-		}
-	})
-
-	t.Run("Fail when encode returns an error", func(t *testing.T) {
-		w := newRecordingWriter()
-
-		encode := func(w http.ResponseWriter, _ payload) error {
-			return errBoom
-		}
-
-		h := wrap(decodeZero, handlerZero, encode, discardLogger())
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		if w.status != http.StatusInternalServerError {
-			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
-		}
-	})
-
-	t.Run("Success when logger is nil and the handler fails", func(t *testing.T) {
-		w := newRecordingWriter()
-
-		fn := func(ctx context.Context, _ payload) (payload, error) {
-			return payload{}, errBoom
-		}
-
-		h := wrap(decodeZero, fn, noContent[payload], nil)
-		h(w, httptest.NewRequest(http.MethodPost, "/", nil))
-
-		if w.status != http.StatusInternalServerError {
-			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.status)
-		}
-	})
 }
 
 func TestWrapNoInput(t *testing.T) {
@@ -327,7 +346,7 @@ func TestWrapNoInput(t *testing.T) {
 			return payload{Name: "alice", Count: 7}, nil
 		}
 
-		h := wrapNoInput(fn, ok[payload], discardLogger())
+		h := WrapNoInput(fn, OK[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
 		if w.status != http.StatusOK {
@@ -349,7 +368,7 @@ func TestWrapNoInput(t *testing.T) {
 		// Proof that the internal decoder never reads the body.
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`not json at all`))
 
-		h := wrapNoInput(fn, ok[payload], discardLogger())
+		h := WrapNoInput(fn, OK[payload], discardLogger())
 		h(w, r)
 
 		if w.status != http.StatusOK {
@@ -369,7 +388,7 @@ func TestWrapNoInput(t *testing.T) {
 		ctx := context.WithValue(t.Context(), ctxKey{}, "carried")
 		r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
 
-		h := wrapNoInput(fn, noContent[payload], discardLogger())
+		h := WrapNoInput(fn, NoContent[payload], discardLogger())
 		h(w, r)
 
 		if gotValue != "carried" {
@@ -384,7 +403,7 @@ func TestWrapNoInput(t *testing.T) {
 			return payload{}, errBoom
 		}
 
-		h := wrapNoInput(fn, ok[payload], discardLogger())
+		h := WrapNoInput(fn, OK[payload], discardLogger())
 		h(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
 		if w.status != http.StatusInternalServerError {
@@ -402,7 +421,7 @@ func TestWrapNoInput(t *testing.T) {
 			return errBoom
 		}
 
-		h := wrapNoInput(fn, encode, discardLogger())
+		h := WrapNoInput(fn, encode, discardLogger())
 		h(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
 		if w.status != http.StatusInternalServerError {
