@@ -145,6 +145,36 @@ func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, er
 	return RegisterOut{Principal: principal, SessionToken: token}, nil
 }
 
+func (svc Service) Logout(ctx context.Context, sessionToken string) error {
+	tokenHash := sha256.Sum256([]byte(sessionToken))
+	err := svc.sessionStore.Revoke(ctx, tokenHash)
+	if err != nil && !errors.Is(err, ErrSessionNotFound) {
+		return err
+	}
+	return nil
+}
+
+func (svc Service) Authenticate(ctx context.Context, sessionToken string) (Principal, error) {
+	tokenHash := sha256.Sum256([]byte(sessionToken))
+	session, err := svc.sessionStore.GetByID(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, errs.NotFound) {
+			return Principal{}, ErrUnauthenticated
+		}
+		return Principal{}, err
+	}
+	if session.RevokedAt != nil {
+		return Principal{}, ErrSessionRevoked
+	}
+
+	principal, err := svc.principalStore.GetByID(ctx, session.UserID)
+	if err != nil {
+		return Principal{}, fmt.Errorf("failed to get principal for session %v: %w", session, err)
+	}
+
+	return principal, nil
+}
+
 func NewService(principalStore PrincipalStore, sessionStore SessionStore) Service {
 	return Service{
 		principalStore: principalStore,

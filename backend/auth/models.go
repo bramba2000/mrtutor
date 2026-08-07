@@ -28,4 +28,6 @@ var (
 	ErrConflictPrincipal  = errs.Domain("principal.conflict", "principal already exists", errs.Conflict)
 	ErrInvalidCredentials = errs.Domain("invalidCredentials", "invalid credentials", errs.Unauthenticated)
 	ErrSessionConflict    = errs.Domain("session.conflict", "session already exists", errs.Conflict)
+	ErrUnauthenticated    = errs.Domain("unauthenticated", "unauthenticated", errs.Unauthenticated)
+	ErrSessionRevoked     = errs.Domain("session.revoked", "session revoked", errs.Unauthenticated)
 )

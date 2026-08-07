@@ -11,11 +11,17 @@ type PrincipalStore interface {
 	Create(ctx context.Context, principal Principal) (Principal, error)
 	// GetByUsernameOrEmail retrieves a principal by its username or email.
 	GetByUsernameOrEmail(ctx context.Context, usernameOrEmail string) (Principal, error)
+	// GetByID retrieves a principal by its ID.
+	GetByID(ctx context.Context, principalId int) (Principal, error)
 }
 
 type SessionStore interface {
 	// Create creates a new session in the repository.
 	Create(ctx context.Context, session Session) (Session, error)
+	// Revoke revokes a session by its ID.
+	Revoke(ctx context.Context, sessionId [32]byte) error
+	// GetByID retrieves a session by its ID.
+	GetByID(ctx context.Context, sessionId [32]byte) (Session, error)
 }
 
 type UnitOfWork interface {

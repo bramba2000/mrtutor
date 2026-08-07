@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bramba2000/mrtutor/backend/auth"
 	"golang.org/x/crypto/bcrypt"
@@ -32,7 +33,7 @@ func seedPrincipal(t testing.TB, store auth.PrincipalStore, username, email, pas
 	return principal
 }
 
-func TestService(t *testing.T) {
+func TestService_Login(t *testing.T) {
 	principalStore := &mockPrincipalStore{
 		db:    make(map[int]auth.Principal),
 		count: 0,
@@ -40,43 +41,50 @@ func TestService(t *testing.T) {
 	sessionStore := mockSessionStore(make(map[[32]byte]auth.Session))
 
 	service := auth.NewService(principalStore, sessionStore)
-	t.Run("Login", func(t *testing.T) {
-		const password = "abc123"
-		principal := seedPrincipal(t, principalStore, "test", "test@example.com", password)
-		t.Run("Success when provide valid credentials", func(t *testing.T) {
-			tt := []struct {
-				name  string
-				token string
-			}{
-				{
-					name:  "Login with username",
-					token: principal.Username,
-				}, {
-					name:  "Login with email",
-					token: principal.Email,
-				},
-			}
-			for _, tc := range tt {
-				t.Run(tc.name, func(t *testing.T) {
-					session, err := service.Login(context.Background(), auth.LoginIn{
-						Token:    tc.token,
-						Password: password,
-					})
-					if err != nil {
-						t.Fatalf("failed to login: %v", err)
-					}
-					if _, ok := sessionStore[sha256.Sum256([]byte(session))]; !ok {
-						t.Fatalf("session not persisted in session store")
-					}
+	const password = "abc123"
+	principal := seedPrincipal(t, principalStore, "test", "test@example.com", password)
+	t.Run("Success when provide valid credentials", func(t *testing.T) {
+		tt := []struct {
+			name  string
+			token string
+		}{
+			{
+				name:  "Login with username",
+				token: principal.Username,
+			}, {
+				name:  "Login with email",
+				token: principal.Email,
+			},
+		}
+		for _, tc := range tt {
+			t.Run(tc.name, func(t *testing.T) {
+				session, err := service.Login(context.Background(), auth.LoginIn{
+					Token:    tc.token,
+					Password: password,
 				})
-			}
-		})
+				if err != nil {
+					t.Fatalf("failed to login: %v", err)
+				}
+				if _, ok := sessionStore[sha256.Sum256([]byte(session))]; !ok {
+					t.Fatalf("session not persisted in session store")
+				}
+			})
+		}
 	})
 }
 
 type mockPrincipalStore struct {
 	db    map[int]auth.Principal
 	count int
+}
+
+// GetByID implements [auth.PrincipalStore].
+func (m *mockPrincipalStore) GetByID(ctx context.Context, principalId int) (auth.Principal, error) {
+	if p, ok := m.db[principalId]; !ok {
+		return auth.Principal{}, auth.ErrPrincipalNotFound
+	} else {
+		return p, nil
+	}
 }
 
 // Create implements [auth.PrincipalStore].
@@ -111,6 +119,26 @@ func (m *mockPrincipalStore) GetByUsernameOrEmail(ctx context.Context, usernameO
 var _ auth.PrincipalStore = &mockPrincipalStore{}
 
 type mockSessionStore map[[32]byte]auth.Session
+
+// GetByID implements [auth.SessionStore].
+func (m mockSessionStore) GetByID(ctx context.Context, sessionId [32]byte) (auth.Session, error) {
+	if s, ok := m[sessionId]; !ok {
+		return auth.Session{}, auth.ErrSessionNotFound
+	} else {
+		return s, nil
+	}
+}
+
+// Revoke implements [auth.SessionStore].
+func (m mockSessionStore) Revoke(ctx context.Context, sessionId [32]byte) error {
+	if s, ok := m[sessionId]; !ok {
+		return auth.ErrSessionNotFound
+	} else {
+		s.RevokedAt = new(time.Now().UTC())
+		m[sessionId] = s
+	}
+	return nil
+}
 
 // Create implements [auth.SessionStore].
 func (m mockSessionStore) Create(ctx context.Context, session auth.Session) (auth.Session, error) {
@@ -337,6 +365,57 @@ func TestService_Register(t *testing.T) {
 			if tt.matchOut != nil {
 				if err := tt.matchOut(got); err != nil {
 					t.Errorf("Register() failed output match: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestService_Logout(t *testing.T) {
+	validSessionToken := "valid-session-token"
+	tokenHash := sha256.Sum256([]byte(validSessionToken))
+	seededStore := mockSessionStore{
+		tokenHash: auth.Session{
+			TokenHash: tokenHash,
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+	tt := []struct {
+		name         string
+		sessionStore auth.SessionStore
+		sessionToken string
+		matchErr     func(err error) error
+	}{
+		{
+			name:         "Succed with valid session token",
+			sessionStore: seededStore,
+			sessionToken: validSessionToken,
+			matchErr: func(err error) error {
+				if err != nil {
+					return fmt.Errorf("expected null error, got %w", err)
+				}
+				return nil
+			},
+		},
+		{
+			name:         "Fail when non-existing session token",
+			sessionStore: seededStore,
+			sessionToken: "non-existing-session-token",
+			matchErr: func(err error) error {
+				if err != nil {
+					return fmt.Errorf("expected null error, got %w", err)
+				}
+				return nil
+			},
+		},
+	}
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := auth.NewService(nil, tc.sessionStore)
+			gotErr := svc.Logout(t.Context(), tc.sessionToken)
+			if tc.matchErr != nil {
+				if err := tc.matchErr(gotErr); err != nil {
+					t.Errorf("Logout() failed error match: %v", err)
 				}
 			}
 		})
