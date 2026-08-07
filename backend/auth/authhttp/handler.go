@@ -20,6 +20,8 @@ import (
 type Service interface {
 	Login(ctx context.Context, in auth.LoginIn) (string, error)
 	Register(ctx context.Context, in auth.RegisterIn) (auth.RegisterOut, error)
+	Logout(ctx context.Context, sessionToken string) error
+	Authenticate(ctx context.Context, sessionToken string) (auth.Principal, error)
 }
 
 var _ Service = auth.Service{}
@@ -33,11 +35,13 @@ type Handler struct {
 }
 
 func (h Handler) Mount(r *httpx.Router) {
+	requireSession := RequireSession(h.svc, h.logger)
+
 	r.Handle("POST /auth/login", httpx.Wrap(
 		httpx.BodyDecoder[auth.LoginIn],
 		h.svc.Login,
 		func(w http.ResponseWriter, out string) error {
-			h.encodeSessionCookie(w, out)
+			encodeSessionCookie(w, out, h.cfg)
 			w.WriteHeader(http.StatusOK)
 			return nil
 		},
@@ -47,11 +51,42 @@ func (h Handler) Mount(r *httpx.Router) {
 		httpx.BodyDecoder[auth.RegisterIn],
 		h.svc.Register,
 		func(w http.ResponseWriter, out auth.RegisterOut) error {
-			h.encodeSessionCookie(w, out.SessionToken)
+			encodeSessionCookie(w, out.SessionToken, h.cfg)
 			return httpx.Created(w, out.Principal)
 		},
 		h.logger,
 	))
+	r.Handle("POST /auth/logout", httpx.WrapUnvalidated(
+		func(r *http.Request) (string, error) {
+			session, _ := decodeSessionCookie(r)
+			return session, nil
+		},
+		func(ctx context.Context, sessionToken string) (struct{}, error) {
+			return struct{}{}, h.svc.Logout(ctx, sessionToken)
+		},
+		func(w http.ResponseWriter, out struct{}) error {
+			// Clear the session cookie by setting it to an empty value and
+			// MaxAge=0, which tells the browser to delete it.
+			http.SetCookie(w, &http.Cookie{
+				Name:   sessionCookieName,
+				Value:  "",
+				MaxAge: -1,
+			})
+			return httpx.NoContent(w, out)
+		},
+		h.logger,
+	))
+	r.Handle("GET /auth/me", requireSession(httpx.WrapNoInput(
+		func(ctx context.Context) (auth.Principal, error) {
+			principal, ok := auth.FromContext(ctx)
+			if !ok {
+				return auth.Principal{}, auth.ErrUnauthenticated
+			}
+			return principal, nil
+		},
+		httpx.OK,
+		h.logger,
+	)))
 }
 
 // DefaultCookieMaxAge is the session cookie lifetime used when Config.MaxAge
@@ -78,16 +113,24 @@ func (c Config) maxAge() time.Duration {
 	return c.MaxAge
 }
 
-func (h Handler) encodeSessionCookie(w http.ResponseWriter, token string) {
+func encodeSessionCookie(w http.ResponseWriter, token string, cfg Config) {
 	http.SetCookie(w, new(http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   h.cfg.Secure,
+		Secure:   cfg.Secure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(h.cfg.maxAge().Seconds()),
+		MaxAge:   int(cfg.maxAge().Seconds()),
 	}))
+}
+
+func decodeSessionCookie(r *http.Request) (string, error) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return "", auth.ErrUnauthenticated
+	}
+	return cookie.Value, nil
 }
 
 func NewHandler(svc Service, cfg Config, logger *slog.Logger) Handler {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,12 +23,34 @@ import (
 // fakeService lets each test control what the domain layer returns, without a
 // database or bcrypt anywhere in the loop.
 type fakeService struct {
-	loginFn    func(context.Context, auth.LoginIn) (string, error)
-	registerFn func(context.Context, auth.RegisterIn) (auth.RegisterOut, error)
+	loginFn        func(context.Context, auth.LoginIn) (string, error)
+	registerFn     func(context.Context, auth.RegisterIn) (auth.RegisterOut, error)
+	logoutFn       func(context.Context, string) error
+	authenticateFn func(context.Context, string) (auth.Principal, error)
 
-	loginCalled, registerCalled bool
-	gotLogin                    auth.LoginIn
-	gotRegister                 auth.RegisterIn
+	loginCalled        bool
+	registerCalled     bool
+	logoutCalled       bool
+	authenticateCalled bool
+
+	gotLogin        auth.LoginIn
+	gotRegister     auth.RegisterIn
+	gotLogout       string
+	gotAuthenticate string
+}
+
+// Authenticate implements [authhttp.Service].
+func (f *fakeService) Authenticate(ctx context.Context, sessionToken string) (auth.Principal, error) {
+	f.logoutCalled = true
+	f.gotAuthenticate = sessionToken
+	return f.authenticateFn(ctx, sessionToken)
+}
+
+// Logout implements [authhttp.Service].
+func (f *fakeService) Logout(ctx context.Context, sessionToken string) error {
+	f.logoutCalled = true
+	f.gotLogout = sessionToken
+	return f.logoutFn(ctx, sessionToken)
 }
 
 func (f *fakeService) Login(ctx context.Context, in auth.LoginIn) (string, error) {
@@ -82,7 +105,8 @@ func findSessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
 func mounted(t *testing.T, svc authhttp.Service, cfg authhttp.Config) *httpx.Router {
 	t.Helper()
 	r := httpx.NewRouter("")
-	h := authhttp.NewHandler(svc, cfg, nil)
+	l := slog.New(slog.NewTextHandler(t.Output(), nil))
+	h := authhttp.NewHandler(svc, cfg, l)
 	h.Mount(r)
 	return r
 }
@@ -400,6 +424,113 @@ func TestRegister(t *testing.T) {
 		}
 		if svc.registerCalled {
 			t.Error("expected the service not to be called when validation fails")
+		}
+	})
+}
+
+func TestLogout(t *testing.T) {
+	logoutFn := func(ctx context.Context, sessionToken string) error {
+		return nil
+	}
+	t.Run("Success when user has existing session", func(t *testing.T) {
+		svc := &fakeService{
+			logoutFn: logoutFn,
+		}
+
+		h := mounted(t, svc, authhttp.Config{})
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "the-session-token"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		if !svc.logoutCalled {
+			t.Error("expected the service to be called")
+		}
+		if svc.gotLogout != "the-session-token" {
+			t.Errorf("expected the service to receive the session token, got %q", svc.gotLogout)
+		}
+	})
+	t.Run("Success when no session is provided", func(t *testing.T) {
+		svc := &fakeService{
+			logoutFn: logoutFn,
+		}
+
+		h := mounted(t, svc, authhttp.Config{})
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		if !svc.logoutCalled {
+			t.Error("expected the service to be called")
+		}
+		if svc.gotLogout != "" {
+			t.Errorf("expected the service to receive the session token, got %q", svc.gotLogout)
+		}
+	})
+}
+
+func TestMe(t *testing.T) {
+	const validToken = "valid-token"
+	principal := auth.Principal{
+		ID:           42,
+		Username:     "test",
+		Email:        "test@example.com",
+		PasswordHash: make([]byte, 0),
+	}
+	svc := &fakeService{
+		authenticateFn: func(ctx context.Context, sessionToken string) (auth.Principal, error) {
+			if sessionToken == validToken {
+				return principal, nil
+			}
+			return auth.Principal{}, auth.ErrInvalidCredentials
+		},
+	}
+
+	l := slog.New(slog.NewTextHandler(t.Output(), nil))
+	h := httpx.NewRouter("", authhttp.RequireSession(svc, l))
+	authhttp.NewHandler(svc, authhttp.Config{}, l).Mount(h)
+
+	t.Run("Success when user authenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: validToken})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		var got auth.Principal
+		if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+		if principal.ID != got.ID {
+			t.Errorf("expected principal ID %d, got %d", principal.ID, got.ID)
+		}
+	})
+
+	t.Run("Fail when user not authenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "invalid-token"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+		}
+		var body errorBody
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+		if body.Code != "invalidCredentials" {
+			t.Errorf("expected code %q, got %q", "invalidCredentials", body.Code)
 		}
 	})
 }
