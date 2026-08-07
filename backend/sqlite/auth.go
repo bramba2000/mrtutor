@@ -13,6 +13,15 @@ type PrincipalStore struct {
 	db *DB
 }
 
+// GetByID implements [auth.PrincipalStore].
+func (p *PrincipalStore) GetByID(ctx context.Context, principalId int) (auth.Principal, error) {
+	principal, err := gen.New(p.db.R).GetPrincipalById(ctx, int64(principalId))
+	if err != nil {
+		return auth.Principal{}, translateSQLError("get principal by id ", err, auth.ErrPrincipalNotFound, nil)
+	}
+	return principalFromDB(principal), nil
+}
+
 // Create implements [auth.PrincipalStore].
 func (p *PrincipalStore) Create(ctx context.Context, principal auth.Principal) (auth.Principal, error) {
 	id, err := gen.New(p.db.W).CreatePrincipal(ctx, gen.CreatePrincipalParams{
@@ -41,6 +50,24 @@ var _ auth.PrincipalStore = (*PrincipalStore)(nil)
 
 type SessionStore struct {
 	db *DB
+}
+
+// GetByID implements [auth.SessionStore].
+func (s *SessionStore) GetByID(ctx context.Context, sessionId [32]byte) (auth.Session, error) {
+	session, err := gen.New(s.db.R).GetAuthSessionByToken(ctx, sessionId[:])
+	if err != nil {
+		return auth.Session{}, translateSQLError("get session by id ", err, auth.ErrSessionNotFound, nil)
+	}
+	return sessionFromDB(session), nil
+}
+
+// Revoke implements [auth.SessionStore].
+func (s *SessionStore) Revoke(ctx context.Context, sessionId [32]byte) error {
+	err := gen.New(s.db.W).RevokeSession(ctx, sessionId[:])
+	if err != nil {
+		return translateSQLError("revoke session ", err, auth.ErrSessionNotFound, nil)
+	}
+	return nil
 }
 
 // Create implements [auth.SessionStore].
@@ -78,5 +105,16 @@ func principalFromDB(principal gen.Principal) auth.Principal {
 		PasswordHash: principal.PasswordHash,
 		CreatedAt:    principal.CreatedAt,
 		UpdatedAt:    principal.UpdatedAt.Time,
+	}
+}
+
+func sessionFromDB(session gen.Session) auth.Session {
+	var tokenHash [32]byte
+	copy(tokenHash[:], session.ID)
+	return auth.Session{
+		TokenHash: tokenHash,
+		UserID:    int(session.UserID),
+		CreatedAt: session.CreatedAt,
+		RevokedAt: nullTimeToPointer(session.RevokedAt),
 	}
 }

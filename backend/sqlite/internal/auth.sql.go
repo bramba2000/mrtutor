@@ -53,6 +53,42 @@ func (q *Queries) CreatePrincipal(ctx context.Context, arg CreatePrincipalParams
 	return id, err
 }
 
+const getAuthSessionByToken = `-- name: GetAuthSessionByToken :one
+SELECT id, user_id, created_at, revoked_at FROM sessions WHERE id = ?1
+`
+
+// GetAuthSessionByToken retrieves an authentication session by token.
+func (q *Queries) GetAuthSessionByToken(ctx context.Context, tokenHash []byte) (Session, error) {
+	row := q.db.QueryRowContext(ctx, getAuthSessionByToken, tokenHash)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const getPrincipalById = `-- name: GetPrincipalById :one
+SELECT id, username, email, password_hash, created_at, updated_at FROM principals WHERE id = ?1
+`
+
+// GetPrincipalById retrieves a principal by id.
+func (q *Queries) GetPrincipalById(ctx context.Context, id int64) (Principal, error) {
+	row := q.db.QueryRowContext(ctx, getPrincipalById, id)
+	var i Principal
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getPrincipalByUsernameOrEmail = `-- name: GetPrincipalByUsernameOrEmail :one
 SELECT id, username, email, password_hash, created_at, updated_at FROM principals WHERE username = ?1 OR email = ?1
 `
@@ -70,4 +106,14 @@ func (q *Queries) GetPrincipalByUsernameOrEmail(ctx context.Context, token strin
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const revokeSession = `-- name: RevokeSession :exec
+UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?1
+`
+
+// RevokeSession revokes an authentication session
+func (q *Queries) RevokeSession(ctx context.Context, tokenHash []byte) error {
+	_, err := q.db.ExecContext(ctx, revokeSession, tokenHash)
+	return err
 }

@@ -12,3 +12,15 @@ SELECT * FROM principals WHERE username = :token OR email = :token;
 -- CreateAuthSession creates a new authentication session for a principal. Return the id of the newly created session.
 INSERT INTO sessions (user_id, id, created_at)
     VALUES (:user_id, :token_hash, :created_at);
+
+-- name: RevokeSession :exec
+-- RevokeSession revokes an authentication session
+UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = :token_hash;
+
+-- name: GetAuthSessionByToken :one
+-- GetAuthSessionByToken retrieves an authentication session by token.
+SELECT * FROM sessions WHERE id = :token_hash;
+
+-- name: GetPrincipalById :one
+-- GetPrincipalById retrieves a principal by id.
+SELECT * FROM principals WHERE id = :id;
