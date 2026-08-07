@@ -40,7 +40,7 @@ func TestService_Login(t *testing.T) {
 	}
 	sessionStore := mockSessionStore(make(map[[32]byte]auth.Session))
 
-	service := auth.NewService(principalStore, sessionStore)
+	service := auth.NewService(principalStore, sessionStore, nil)
 	const password = "abc123"
 	principal := seedPrincipal(t, principalStore, "test", "test@example.com", password)
 	t.Run("Success when provide valid credentials", func(t *testing.T) {
@@ -147,6 +147,20 @@ func (m mockSessionStore) Create(ctx context.Context, session auth.Session) (aut
 }
 
 var _ auth.SessionStore = mockSessionStore{}
+
+type mockUnitOfWork struct {
+	principalStore auth.PrincipalStore
+	sessionStore   auth.SessionStore
+}
+
+func (m mockUnitOfWork) RunInTx(ctx context.Context, fn func(stores auth.Stores) error) error {
+	return fn(auth.Stores{
+		Principal: m.principalStore,
+		Session:   m.sessionStore,
+	})
+}
+
+var _ auth.UnitOfWork = mockUnitOfWork{}
 
 func TestLoginIn_Validate(t *testing.T) {
 	tests := []struct {
@@ -355,7 +369,11 @@ func TestService_Register(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := auth.NewService(tt.principalStore, tt.sessionStore)
+			svc := auth.NewService(
+				tt.principalStore,
+				tt.sessionStore,
+				mockUnitOfWork{tt.principalStore, tt.sessionStore},
+			)
 			got, gotErr := svc.Register(t.Context(), tt.in)
 			if tt.matchErr != nil {
 				if err := tt.matchErr(gotErr); err != nil {
@@ -411,7 +429,7 @@ func TestService_Logout(t *testing.T) {
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := auth.NewService(nil, tc.sessionStore)
+			svc := auth.NewService(nil, tc.sessionStore, nil)
 			gotErr := svc.Logout(t.Context(), tc.sessionToken)
 			if tc.matchErr != nil {
 				if err := tc.matchErr(gotErr); err != nil {

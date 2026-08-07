@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func nullTimeToPointer(t sql.NullTime) *time.Time {
+func NullTimeToPointer(t sql.NullTime) *time.Time {
 	if t.Valid {
 		return &t.Time
 	}

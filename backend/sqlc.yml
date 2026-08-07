@@ -4,8 +4,9 @@ version: "2"
 sql:
   - engine: sqlite
     schema: "sqlite/migrations/*.sql"
-    queries: "sqlite/queries/*.sql"
+    queries: "auth/authsqlite/*.sql"
     gen:
       go:
         package: gen
-        out: "sqlite/internal"
+        out: "auth/authsqlite/internal/gen"
+        omit_unused_structs: true

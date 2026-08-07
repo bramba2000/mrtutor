@@ -15,8 +15,8 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/auth"
 	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/auth/authsqlite"
 	"github.com/bramba2000/mrtutor/backend/httpx"
-	"github.com/bramba2000/mrtutor/backend/sqlite"
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -118,9 +118,8 @@ func TestAuth(t *testing.T) {
 	skipIfNotIntegration(t)
 
 	db := sqlitetest.OpenTemp(t)
-	principalRepo := sqlite.NewPrincipalStore(db)
-	sessionRepo := sqlite.NewSessionStore(db)
-	svc := auth.NewService(principalRepo, sessionRepo)
+	authStorage := authsqlite.Build(db)
+	svc := auth.NewService(authStorage.PrincipalStore, authStorage.SessionStore, authStorage.UnitOfWork)
 	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
 
 	router := httpx.NewRouter("")
@@ -128,10 +127,10 @@ func TestAuth(t *testing.T) {
 	authHandler.Mount(router)
 
 	const password = "testpassword"
-	principal := seedPrincipal(t, principalRepo, "testlogin", password)
+	principal := seedPrincipal(t, authStorage.PrincipalStore, "testlogin", password)
 
 	const sessionToken = "testsessiontoken"
-	seedSession(t, sessionRepo, sessionToken, principal.ID)
+	seedSession(t, authStorage.SessionStore, sessionToken, principal.ID)
 
 	t.Run("Sucessful login when valid credentials", func(t *testing.T) {
 		req := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
@@ -214,7 +213,7 @@ func TestAuth(t *testing.T) {
 	})
 	t.Run("Successful logout when authenticated", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
-		authenticateRequest(t, sessionRepo, principal, req)
+		authenticateRequest(t, authStorage.SessionStore, principal, req)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -229,7 +228,7 @@ func TestAuth(t *testing.T) {
 	})
 	t.Run("Succcessful get current principal when authenticated", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
-		authenticateRequest(t, sessionRepo, principal, req)
+		authenticateRequest(t, authStorage.SessionStore, principal, req)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)

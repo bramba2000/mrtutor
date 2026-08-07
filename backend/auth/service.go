@@ -18,6 +18,7 @@ import (
 type Service struct {
 	principalStore PrincipalStore
 	sessionStore   SessionStore
+	unitOfWork     UnitOfWork
 }
 
 type LoginIn struct {
@@ -118,26 +119,36 @@ func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, er
 		return RegisterOut{}, err
 	}
 
-	principal, err := svc.principalStore.Create(ctx, Principal{
-		Username:     in.Username,
-		Email:        in.Email,
-		PasswordHash: passwordHash,
-	})
-	if err != nil {
-		return RegisterOut{}, err
-	}
-
 	token, err := newSessionToken()
 	if err != nil {
 		return RegisterOut{}, err
 	}
 	tokenHash := sha256.Sum256([]byte(token))
 
-	_, err = svc.sessionStore.Create(ctx, Session{
-		TokenHash: tokenHash,
-		UserID:    principal.ID,
-		CreatedAt: time.Now().UTC(),
+	var principal Principal
+	err = svc.unitOfWork.RunInTx(ctx, func(stores Stores) error {
+		var err error
+		principal, err = stores.Principal.Create(ctx, Principal{
+			Username:     in.Username,
+			Email:        in.Email,
+			PasswordHash: passwordHash,
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = stores.Session.Create(ctx, Session{
+			TokenHash: tokenHash,
+			UserID:    principal.ID,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		return nil
 	})
+
 	if err != nil {
 		return RegisterOut{}, err
 	}
@@ -175,10 +186,11 @@ func (svc Service) Authenticate(ctx context.Context, sessionToken string) (Princ
 	return principal, nil
 }
 
-func NewService(principalStore PrincipalStore, sessionStore SessionStore) Service {
+func NewService(principalStore PrincipalStore, sessionStore SessionStore, uow UnitOfWork) Service {
 	return Service{
 		principalStore: principalStore,
 		sessionStore:   sessionStore,
+		unitOfWork:     uow,
 	}
 }
 

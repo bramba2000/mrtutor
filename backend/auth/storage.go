@@ -3,7 +3,8 @@ package auth
 import "context"
 
 type Stores struct {
-	Principals PrincipalStore
+	Principal PrincipalStore
+	Session   SessionStore
 }
 
 type PrincipalStore interface {

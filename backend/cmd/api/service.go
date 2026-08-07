@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/bramba2000/mrtutor/backend/auth"
+	"github.com/bramba2000/mrtutor/backend/auth/authsqlite"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
 
@@ -10,9 +11,8 @@ type Services struct {
 }
 
 func createServices(db *sqlite.DB) Services {
-	principalStore := sqlite.NewPrincipalStore(db)
-	sessionStore := sqlite.NewSessionStore(db)
-	auth := auth.NewService(principalStore, sessionStore)
+	authStorage := authsqlite.Build(db)
+	auth := auth.NewService(authStorage.PrincipalStore, authStorage.SessionStore, authStorage.UnitOfWork)
 
 	return Services{
 		Auth: auth,

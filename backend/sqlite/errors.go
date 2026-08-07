@@ -8,7 +8,7 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-func translateSQLError(op string, err error, notFound, conflict error) error {
+func TranslateSQLError(op string, err error, notFound, conflict error) error {
 	if err == nil {
 		return nil
 	}
