@@ -79,6 +79,14 @@ func findSessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
+func mounted(t *testing.T, svc authhttp.Service, cfg authhttp.Config) *httpx.Router {
+	t.Helper()
+	r := httpx.NewRouter("")
+	h := authhttp.NewHandler(svc, cfg, nil)
+	h.Mount(r)
+	return r
+}
+
 func TestLogin(t *testing.T) {
 	t.Run("Success when credentials are valid", func(t *testing.T) {
 		svc := &fakeService{
@@ -86,10 +94,10 @@ func TestLogin(t *testing.T) {
 				return "the-session-token", nil
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, newJSONRequest(http.MethodPost, "/login", auth.LoginIn{
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/login", auth.LoginIn{
 			Token: "alice", Password: "correct-password",
 		}))
 
@@ -135,10 +143,10 @@ func TestLogin(t *testing.T) {
 				return "tok", nil
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{Secure: true}, nil)
+		h := mounted(t, svc, authhttp.Config{Secure: true})
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, newJSONRequest(http.MethodPost, "/login", auth.LoginIn{
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/login", auth.LoginIn{
 			Token: "alice", Password: "correct-password",
 		}))
 
@@ -157,10 +165,10 @@ func TestLogin(t *testing.T) {
 				return "", auth.ErrInvalidCredentials
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, newJSONRequest(http.MethodPost, "/login", auth.LoginIn{
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/login", auth.LoginIn{
 			Token: "alice", Password: "wrong",
 		}))
 
@@ -185,10 +193,10 @@ func TestLogin(t *testing.T) {
 				return "", errors.New("db is on fire")
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, newJSONRequest(http.MethodPost, "/login", auth.LoginIn{
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/login", auth.LoginIn{
 			Token: "alice", Password: "whatever",
 		}))
 
@@ -202,13 +210,13 @@ func TestLogin(t *testing.T) {
 
 	t.Run("Fail when Content-Type is missing", func(t *testing.T) {
 		svc := &fakeService{}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		buf, _ := json.Marshal(auth.LoginIn{Token: "alice", Password: "whatever"})
-		req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(buf))
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(buf))
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, req)
+		h.ServeHTTP(w, req)
 
 		if w.Code != http.StatusUnsupportedMediaType {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusUnsupportedMediaType, w.Code, w.Body.String())
@@ -220,13 +228,13 @@ func TestLogin(t *testing.T) {
 
 	t.Run("Fail when the body is empty", func(t *testing.T) {
 		svc := &fakeService{}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
-		req := httptest.NewRequest(http.MethodPost, "/login", nil)
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 		req.Header.Set("Content-Type", "application/json")
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, req)
+		h.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())
@@ -242,10 +250,10 @@ func TestLogin(t *testing.T) {
 
 	t.Run("Fail when token and password are blank", func(t *testing.T) {
 		svc := &fakeService{}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Login.ServeHTTP(w, newJSONRequest(http.MethodPost, "/login", auth.LoginIn{}))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/login", auth.LoginIn{}))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())
@@ -290,10 +298,10 @@ func TestRegister(t *testing.T) {
 				}, nil
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Register.ServeHTTP(w, newJSONRequest(http.MethodPost, "/register", validIn))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/register", validIn))
 
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
@@ -328,10 +336,10 @@ func TestRegister(t *testing.T) {
 				return auth.RegisterOut{}, auth.ErrConflictPrincipal
 			},
 		}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		w := httptest.NewRecorder()
-		h.Register.ServeHTTP(w, newJSONRequest(http.MethodPost, "/register", validIn))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/register", validIn))
 
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusConflict, w.Code, w.Body.String())
@@ -350,12 +358,12 @@ func TestRegister(t *testing.T) {
 
 	t.Run("Fail when the password is too weak", func(t *testing.T) {
 		svc := &fakeService{}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		in := validIn
 		in.Password = "weak"
 		w := httptest.NewRecorder()
-		h.Register.ServeHTTP(w, newJSONRequest(http.MethodPost, "/register", in))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/register", in))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())
@@ -380,12 +388,12 @@ func TestRegister(t *testing.T) {
 
 	t.Run("Fail when the email is malformed", func(t *testing.T) {
 		svc := &fakeService{}
-		h := authhttp.NewHandler(svc, authhttp.Config{}, nil)
+		h := mounted(t, svc, authhttp.Config{})
 
 		in := validIn
 		in.Email = "not-an-email"
 		w := httptest.NewRecorder()
-		h.Register.ServeHTTP(w, newJSONRequest(http.MethodPost, "/register", in))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/auth/register", in))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())

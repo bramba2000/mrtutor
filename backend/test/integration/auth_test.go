@@ -14,6 +14,7 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/auth"
 	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 	"golang.org/x/crypto/bcrypt"
@@ -75,19 +76,26 @@ func sessionCookie(t testing.TB, w *httptest.ResponseRecorder) *http.Cookie {
 
 func TestAuth(t *testing.T) {
 	skipIfNotIntegration(t)
+
 	db := sqlitetest.OpenTemp(t)
 	principalRepo := sqlite.NewPrincipalStore(db)
-	const password = "testpassword"
 	svc := auth.NewService(principalRepo, sqlite.NewSessionStore(db))
-	handler := authhttp.NewHandler(svc, authhttp.Config{}, slog.New(slog.NewTextHandler(t.Output(), nil)))
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+
+	router := httpx.NewRouter("")
+	authHandler := authhttp.NewHandler(svc, authhttp.Config{Secure: false}, logger)
+	authHandler.Mount(router)
+
+	const password = "testpassword"
 	principal := seedPrincipal(t, principalRepo, "testlogin", password)
+
 	t.Run("Sucessful login when valid credentials", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/login", auth.LoginIn{
+		req := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
 			Token:    principal.Username,
 			Password: password,
 		})
 		w := httptest.NewRecorder()
-		handler.Login.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
 		}
@@ -104,24 +112,24 @@ func TestAuth(t *testing.T) {
 		}
 	})
 	t.Run("Fail to login when wrong credentials", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/login", auth.LoginIn{
+		req := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
 			Token:    principal.Username,
 			Password: "wrongpassword",
 		})
 		w := httptest.NewRecorder()
-		handler.Login.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 	t.Run("Successul registration when valid credentials", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/register", auth.RegisterIn{
+		req := newJSONRequest(t, http.MethodPost, "/auth/register", auth.RegisterIn{
 			Username: "newuser",
 			Email:    "newuser@example.com",
 			Password: "Password00!",
 		})
 		w := httptest.NewRecorder()
-		handler.Register.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected status 201, got %d: %s", w.Code, w.Body.String())
 		}
@@ -149,13 +157,13 @@ func TestAuth(t *testing.T) {
 		}
 	})
 	t.Run("Fail registration when username already registered", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/register", auth.RegisterIn{
+		req := newJSONRequest(t, http.MethodPost, "/auth/register", auth.RegisterIn{
 			Username: principal.Username,
 			Email:    "testregister@example.com",
 			Password: "Password00!",
 		})
 		w := httptest.NewRecorder()
-		handler.Register.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected status 409, got %d: %s", w.Code, w.Body.String())
 		}

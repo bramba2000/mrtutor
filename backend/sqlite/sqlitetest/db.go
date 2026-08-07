@@ -8,6 +8,9 @@ import (
 )
 
 func OpenTemp(t testing.TB) *sqlite.DB {
+	if testing.Short() {
+		t.Fatalf("cannot use real db when in short test mode")
+	}
 	path := t.TempDir() + "/test.db"
 	db, err := sqlite.Open(t.Context(), sqlite.Options{
 		Path:   path,

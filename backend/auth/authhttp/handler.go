@@ -27,8 +27,31 @@ var _ Service = auth.Service{}
 // Handler holds the auth endpoints. Exported: NewHandler previously returned
 // an unexported type, which callers could not name in a signature or field.
 type Handler struct {
-	Login    http.HandlerFunc
-	Register http.HandlerFunc
+	svc    Service
+	logger *slog.Logger
+	cfg    Config
+}
+
+func (h Handler) Mount(r *httpx.Router) {
+	r.Handle("POST /auth/login", httpx.Wrap(
+		httpx.BodyDecoder[auth.LoginIn],
+		h.svc.Login,
+		func(w http.ResponseWriter, out string) error {
+			h.encodeSessionCookie(w, out)
+			w.WriteHeader(http.StatusOK)
+			return nil
+		},
+		h.logger,
+	))
+	r.Handle("POST /auth/register", httpx.Wrap(
+		httpx.BodyDecoder[auth.RegisterIn],
+		h.svc.Register,
+		func(w http.ResponseWriter, out auth.RegisterOut) error {
+			h.encodeSessionCookie(w, out.SessionToken)
+			return httpx.Created(w, out.Principal)
+		},
+		h.logger,
+	))
 }
 
 // DefaultCookieMaxAge is the session cookie lifetime used when Config.MaxAge
@@ -55,38 +78,22 @@ func (c Config) maxAge() time.Duration {
 	return c.MaxAge
 }
 
-func encodeSessionCookie(w http.ResponseWriter, cfg Config, token string) {
+func (h Handler) encodeSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, new(http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   cfg.Secure,
+		Secure:   h.cfg.Secure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(cfg.maxAge().Seconds()),
+		MaxAge:   int(h.cfg.maxAge().Seconds()),
 	}))
 }
 
 func NewHandler(svc Service, cfg Config, logger *slog.Logger) Handler {
 	return Handler{
-		Login: httpx.Wrap(
-			httpx.BodyDecoder[auth.LoginIn],
-			svc.Login,
-			func(w http.ResponseWriter, out string) error {
-				encodeSessionCookie(w, cfg, out)
-				w.WriteHeader(http.StatusOK)
-				return nil
-			},
-			logger,
-		),
-		Register: httpx.Wrap(
-			httpx.BodyDecoder[auth.RegisterIn],
-			svc.Register,
-			func(w http.ResponseWriter, out auth.RegisterOut) error {
-				encodeSessionCookie(w, cfg, out.SessionToken)
-				return httpx.Created(w, out.Principal)
-			},
-			logger,
-		),
+		svc:    svc,
+		logger: logger,
+		cfg:    cfg,
 	}
 }

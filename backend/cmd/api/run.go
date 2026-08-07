@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/config"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
@@ -47,20 +45,18 @@ func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, 
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	mux := http.NewServeMux()
+	router := httpx.NewRouter("/api/v1", httpx.RequestID(), httpx.AccessLog(logger), httpx.Recover(logger), httpx.MaxBytes())
 	svcs := createServices(db)
 
-	RegisterRoutes(svcs, mux, logger, authhttp.Config{
-		Secure: cfg.AppMode == config.AppModeProd,
-	})
+	registerRoutes(svcs, router, logger, cfg)
 
 	readiness := httpx.Readiness{}
-	mux.Handle("/readyz", readiness.Handler())
-	mux.Handle("/livez", httpx.Liveness())
+	router.Handle("/healthz", readiness.Handler())
+	router.Handle("/livez", httpx.Liveness())
 
 	srv := httpx.NewServer(httpx.Config{
 		Address:         cfg.Server.Address(),
-		Handler:         mux,
+		Handler:         router,
 		Logger:          logger,
 		LogLevel:        cfg.Log.Level,
 		ShutdownTimeout: cfg.Server.ShutdownTimeout,
