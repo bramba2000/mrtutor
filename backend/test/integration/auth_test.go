@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -44,6 +45,21 @@ func seedPrincipal(t testing.TB, repo auth.PrincipalStore, username, password st
 	return principal
 }
 
+func seedSession(t testing.TB, repo auth.SessionStore, sessionToken string, principalID int) auth.Session {
+	session, err := repo.Create(context.Background(), auth.Session{
+		TokenHash: sha256.Sum256([]byte(sessionToken)),
+		UserID:    principalID,
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("failed to seed session: %v", err)
+	}
+	t.Cleanup(func() {
+		repo.Revoke(context.Background(), session.TokenHash)
+	})
+	return session
+}
+
 func encodeBody(t testing.TB, input any) io.Reader {
 	t.Helper()
 	buf, err := json.Marshal(input)
@@ -74,12 +90,37 @@ func sessionCookie(t testing.TB, w *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
+func authenticateRequest(t testing.TB, sessionStore auth.SessionStore, principal auth.Principal, req *http.Request) func(*http.Request) {
+	t.Helper()
+	sessionToken := t.Name()
+
+	session, err := sessionStore.Create(context.Background(), auth.Session{TokenHash: sha256.Sum256([]byte(sessionToken)), UserID: principal.ID, CreatedAt: time.Now()})
+	if err != nil {
+		t.Fatalf("failed to seed session: %v", err)
+	}
+	t.Cleanup(func() {
+		sessionStore.Revoke(context.Background(), session.TokenHash)
+	})
+
+	req.AddCookie(&http.Cookie{
+		Name:  "session",
+		Value: sessionToken,
+	})
+	return func(r *http.Request) {
+		r.AddCookie(&http.Cookie{
+			Name:  "session",
+			Value: sessionToken,
+		})
+	}
+}
+
 func TestAuth(t *testing.T) {
 	skipIfNotIntegration(t)
 
 	db := sqlitetest.OpenTemp(t)
 	principalRepo := sqlite.NewPrincipalStore(db)
-	svc := auth.NewService(principalRepo, sqlite.NewSessionStore(db))
+	sessionRepo := sqlite.NewSessionStore(db)
+	svc := auth.NewService(principalRepo, sessionRepo)
 	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
 
 	router := httpx.NewRouter("")
@@ -88,6 +129,9 @@ func TestAuth(t *testing.T) {
 
 	const password = "testpassword"
 	principal := seedPrincipal(t, principalRepo, "testlogin", password)
+
+	const sessionToken = "testsessiontoken"
+	seedSession(t, sessionRepo, sessionToken, principal.ID)
 
 	t.Run("Sucessful login when valid credentials", func(t *testing.T) {
 		req := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
@@ -166,6 +210,50 @@ func TestAuth(t *testing.T) {
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected status 409, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("Successful logout when authenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		authenticateRequest(t, sessionRepo, principal, req)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected status 204, got %d: %s", w.Code, w.Body.String())
+		}
+		sessionCookie(t, w)
+		if w.Result().Cookies()[0].MaxAge != -1 {
+			t.Errorf("expected the session cookie to be cleared, got MaxAge %d", w.Result().Cookies()[0].MaxAge)
+		}
+	})
+	t.Run("Succcessful get current principal when authenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		authenticateRequest(t, sessionRepo, principal, req)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var got auth.Principal
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+		if got.ID != principal.ID || got.Username != principal.Username || got.Email != principal.Email {
+			t.Errorf("expected the current principal in the body, got %+v", got)
+		}
+	})
+	t.Run("Fail to get current principal when not authenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
