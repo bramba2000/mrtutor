@@ -1,13 +1,19 @@
 package main
 
 import (
+	"errors"
+	"time"
+
 	"github.com/bramba2000/mrtutor/backend/scheduler"
 )
 
-// registerTasks registers every background job with the scheduler, mirroring
-// registerRoutes — the one place a future feature adds a line. No jobs exist
-// yet; session GC is a natural first one once Phase 7 lands
-// SessionStore.DeleteExpired.
+// registerTasks registers every background job with the scheduler.
 func registerTasks(s *scheduler.Scheduler, services Services) error {
-	return nil
+	return errors.Join(
+		s.Register(scheduler.Task{
+			Name:     "cleanup sessions",
+			Schedule: scheduler.Every(24 * time.Hour),
+			Run:      services.Auth.CleanupExpiredSessions,
+		}),
+	)
 }

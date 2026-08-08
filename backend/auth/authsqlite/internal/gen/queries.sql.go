@@ -53,6 +53,17 @@ func (q *Queries) CreatePrincipal(ctx context.Context, arg CreatePrincipalParams
 	return id, err
 }
 
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
+DELETE FROM sessions WHERE revoked_at IS NOT NULL OR created_at < ?1
+`
+
+// DeleteExpiredSessions deletes all revoked or expired sessions from the database.
+// Expired sessions are those that were created before the specified expiration time.
+func (q *Queries) DeleteExpiredSessions(ctx context.Context, expirationTime time.Time) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredSessions, expirationTime)
+	return err
+}
+
 const getAuthSessionByToken = `-- name: GetAuthSessionByToken :one
 SELECT id, user_id, created_at, revoked_at FROM sessions WHERE id = ?1
 `

@@ -2,6 +2,7 @@ package authsqlite
 
 import (
 	"context"
+	"time"
 
 	"github.com/bramba2000/mrtutor/backend/auth"
 	"github.com/bramba2000/mrtutor/backend/auth/authsqlite/internal/gen"
@@ -42,6 +43,14 @@ func (s *SessionStore) Create(ctx context.Context, session auth.Session) (auth.S
 		return auth.Session{}, sqlite.TranslateSQLError("create session ", err, auth.ErrSessionNotFound, auth.ErrSessionConflict)
 	}
 	return session, nil
+}
+
+func (s *SessionStore) DeleteExpired(ctx context.Context, expirationTime time.Time) error {
+	err := gen.New(s.w).DeleteExpiredSessions(ctx, expirationTime.UTC())
+	if err != nil {
+		return sqlite.TranslateSQLError("delete expired sessions ", err, auth.ErrSessionNotFound, nil)
+	}
+	return nil
 }
 
 var _ auth.SessionStore = (*SessionStore)(nil)

@@ -1,6 +1,9 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Stores struct {
 	Principal PrincipalStore
@@ -23,6 +26,8 @@ type SessionStore interface {
 	Revoke(ctx context.Context, sessionId [32]byte) error
 	// GetByID retrieves a session by its ID.
 	GetByID(ctx context.Context, sessionId [32]byte) (Session, error)
+	// DeleteExpired deletes all sessions that are revoked or created before the specified expiration time.
+	DeleteExpired(ctx context.Context, expirationTime time.Time) error
 }
 
 type UnitOfWork interface {

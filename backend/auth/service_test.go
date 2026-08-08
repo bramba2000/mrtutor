@@ -146,6 +146,17 @@ func (m mockSessionStore) Create(ctx context.Context, session auth.Session) (aut
 	return session, nil
 }
 
+func (m mockSessionStore) DeleteExpired(ctx context.Context, expirationTime time.Time) error {
+	for tokenHash, session := range m {
+		if session.CreatedAt.Before(expirationTime) {
+			delete(m, tokenHash)
+		} else if session.RevokedAt != nil {
+			delete(m, tokenHash)
+		}
+	}
+	return nil
+}
+
 var _ auth.SessionStore = mockSessionStore{}
 
 type mockUnitOfWork struct {

@@ -24,3 +24,8 @@ SELECT * FROM sessions WHERE id = :token_hash;
 -- name: GetPrincipalById :one
 -- GetPrincipalById retrieves a principal by id.
 SELECT * FROM principals WHERE id = :id;
+
+-- name: DeleteExpiredSessions :exec
+-- DeleteExpiredSessions deletes all revoked or expired sessions from the database.
+-- Expired sessions are those that were created before the specified expiration time.
+DELETE FROM sessions WHERE revoked_at IS NOT NULL OR created_at < :expiration_time;

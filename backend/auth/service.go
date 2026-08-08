@@ -186,6 +186,15 @@ func (svc Service) Authenticate(ctx context.Context, sessionToken string) (Princ
 	return principal, nil
 }
 
+func (svc Service) CleanupExpiredSessions(ctx context.Context) error {
+	timeout := time.Now().Add(-10 * 24 * time.Hour) // 10 days
+	err := svc.sessionStore.DeleteExpired(ctx, timeout)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
+	}
+	return nil
+}
+
 func NewService(principalStore PrincipalStore, sessionStore SessionStore, uow UnitOfWork) Service {
 	return Service{
 		principalStore: principalStore,
