@@ -46,16 +46,18 @@ func seedPrincipal(t testing.TB, repo auth.PrincipalStore, username, password st
 }
 
 func seedSession(t testing.TB, repo auth.SessionStore, sessionToken string, principalID int) auth.Session {
+	now := time.Now()
 	session, err := repo.Create(context.Background(), auth.Session{
-		TokenHash: sha256.Sum256([]byte(sessionToken)),
-		UserID:    principalID,
-		CreatedAt: time.Now(),
+		TokenHash:  sha256.Sum256([]byte(sessionToken)),
+		UserID:     principalID,
+		CreatedAt:  now,
+		LastSeenAt: now,
 	})
 	if err != nil {
 		t.Fatalf("failed to seed session: %v", err)
 	}
 	t.Cleanup(func() {
-		repo.Revoke(context.Background(), session.TokenHash)
+		repo.Delete(context.Background(), session.TokenHash)
 	})
 	return session
 }
@@ -93,13 +95,14 @@ func sessionCookie(t testing.TB, w *httptest.ResponseRecorder) *http.Cookie {
 func authenticateRequest(t testing.TB, sessionStore auth.SessionStore, principal auth.Principal, req *http.Request) func(*http.Request) {
 	t.Helper()
 	sessionToken := t.Name()
+	now := time.Now()
 
-	session, err := sessionStore.Create(context.Background(), auth.Session{TokenHash: sha256.Sum256([]byte(sessionToken)), UserID: principal.ID, CreatedAt: time.Now()})
+	session, err := sessionStore.Create(context.Background(), auth.Session{TokenHash: sha256.Sum256([]byte(sessionToken)), UserID: principal.ID, CreatedAt: now, LastSeenAt: now})
 	if err != nil {
 		t.Fatalf("failed to seed session: %v", err)
 	}
 	t.Cleanup(func() {
-		sessionStore.Revoke(context.Background(), session.TokenHash)
+		sessionStore.Delete(context.Background(), session.TokenHash)
 	})
 
 	req.AddCookie(&http.Cookie{
@@ -272,6 +275,32 @@ func TestAuth(t *testing.T) {
 	})
 	t.Run("Fail to get current principal when not authenticated", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("Fail to get current principal when session is idle-expired", func(t *testing.T) {
+		const idleSessionToken = "idle-expired-session-token"
+		now := time.Now()
+		session, err := authStorage.SessionStore.Create(context.Background(), auth.Session{
+			TokenHash:  sha256.Sum256([]byte(idleSessionToken)),
+			UserID:     principal.ID,
+			CreatedAt:  now,
+			LastSeenAt: now.Add(-4 * time.Hour), // older than auth.SessionIdleTimeout (3h)
+		})
+		if err != nil {
+			t.Fatalf("failed to seed session: %v", err)
+		}
+		t.Cleanup(func() {
+			authStorage.SessionStore.Delete(context.Background(), session.TokenHash)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: idleSessionToken})
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)

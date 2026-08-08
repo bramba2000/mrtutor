@@ -10,12 +10,16 @@ SELECT * FROM principals WHERE username = :token OR email = :token;
 
 -- name: CreateAuthSession :exec
 -- CreateAuthSession creates a new authentication session for a principal. Return the id of the newly created session.
-INSERT INTO sessions (user_id, id, created_at)
-    VALUES (:user_id, :token_hash, :created_at);
+INSERT INTO sessions (user_id, id, created_at, last_seen_at)
+    VALUES (:user_id, :token_hash, :created_at, :last_seen_at);
 
--- name: RevokeSession :exec
--- RevokeSession revokes an authentication session
-UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = :token_hash;
+-- name: TouchAuthSession :exec
+-- TouchAuthSession refreshes a session's activity timestamp.
+UPDATE sessions SET last_seen_at = :last_seen_at WHERE id = :token_hash;
+
+-- name: DeleteAuthSession :exec
+-- DeleteAuthSession removes a single session (logout).
+DELETE FROM sessions WHERE id = :token_hash;
 
 -- name: GetAuthSessionByToken :one
 -- GetAuthSessionByToken retrieves an authentication session by token.
@@ -26,6 +30,5 @@ SELECT * FROM sessions WHERE id = :token_hash;
 SELECT * FROM principals WHERE id = :id;
 
 -- name: DeleteExpiredSessions :exec
--- DeleteExpiredSessions deletes all revoked or expired sessions from the database.
--- Expired sessions are those that were created before the specified expiration time.
-DELETE FROM sessions WHERE revoked_at IS NOT NULL OR created_at < :expiration_time;
+-- DeleteExpiredSessions deletes sessions past the absolute cap or the inactivity window.
+DELETE FROM sessions WHERE created_at < :created_before OR last_seen_at < :last_seen_before;

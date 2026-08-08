@@ -11,19 +11,25 @@ import (
 )
 
 const createAuthSession = `-- name: CreateAuthSession :exec
-INSERT INTO sessions (user_id, id, created_at)
-    VALUES (?1, ?2, ?3)
+INSERT INTO sessions (user_id, id, created_at, last_seen_at)
+    VALUES (?1, ?2, ?3, ?4)
 `
 
 type CreateAuthSessionParams struct {
-	UserID    int64
-	TokenHash []byte
-	CreatedAt time.Time
+	UserID     int64
+	TokenHash  []byte
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 }
 
 // CreateAuthSession creates a new authentication session for a principal. Return the id of the newly created session.
 func (q *Queries) CreateAuthSession(ctx context.Context, arg CreateAuthSessionParams) error {
-	_, err := q.db.ExecContext(ctx, createAuthSession, arg.UserID, arg.TokenHash, arg.CreatedAt)
+	_, err := q.db.ExecContext(ctx, createAuthSession,
+		arg.UserID,
+		arg.TokenHash,
+		arg.CreatedAt,
+		arg.LastSeenAt,
+	)
 	return err
 }
 
@@ -53,19 +59,33 @@ func (q *Queries) CreatePrincipal(ctx context.Context, arg CreatePrincipalParams
 	return id, err
 }
 
-const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
-DELETE FROM sessions WHERE revoked_at IS NOT NULL OR created_at < ?1
+const deleteAuthSession = `-- name: DeleteAuthSession :exec
+DELETE FROM sessions WHERE id = ?1
 `
 
-// DeleteExpiredSessions deletes all revoked or expired sessions from the database.
-// Expired sessions are those that were created before the specified expiration time.
-func (q *Queries) DeleteExpiredSessions(ctx context.Context, expirationTime time.Time) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredSessions, expirationTime)
+// DeleteAuthSession removes a single session (logout).
+func (q *Queries) DeleteAuthSession(ctx context.Context, tokenHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteAuthSession, tokenHash)
+	return err
+}
+
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
+DELETE FROM sessions WHERE created_at < ?1 OR last_seen_at < ?2
+`
+
+type DeleteExpiredSessionsParams struct {
+	CreatedBefore  time.Time
+	LastSeenBefore time.Time
+}
+
+// DeleteExpiredSessions deletes sessions past the absolute cap or the inactivity window.
+func (q *Queries) DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredSessions, arg.CreatedBefore, arg.LastSeenBefore)
 	return err
 }
 
 const getAuthSessionByToken = `-- name: GetAuthSessionByToken :one
-SELECT id, user_id, created_at, revoked_at FROM sessions WHERE id = ?1
+SELECT id, user_id, created_at, last_seen_at FROM sessions WHERE id = ?1
 `
 
 // GetAuthSessionByToken retrieves an authentication session by token.
@@ -76,7 +96,7 @@ func (q *Queries) GetAuthSessionByToken(ctx context.Context, tokenHash []byte) (
 		&i.ID,
 		&i.UserID,
 		&i.CreatedAt,
-		&i.RevokedAt,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
@@ -119,12 +139,17 @@ func (q *Queries) GetPrincipalByUsernameOrEmail(ctx context.Context, token strin
 	return i, err
 }
 
-const revokeSession = `-- name: RevokeSession :exec
-UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?1
+const touchAuthSession = `-- name: TouchAuthSession :exec
+UPDATE sessions SET last_seen_at = ?1 WHERE id = ?2
 `
 
-// RevokeSession revokes an authentication session
-func (q *Queries) RevokeSession(ctx context.Context, tokenHash []byte) error {
-	_, err := q.db.ExecContext(ctx, revokeSession, tokenHash)
+type TouchAuthSessionParams struct {
+	LastSeenAt time.Time
+	TokenHash  []byte
+}
+
+// TouchAuthSession refreshes a session's activity timestamp.
+func (q *Queries) TouchAuthSession(ctx context.Context, arg TouchAuthSessionParams) error {
+	_, err := q.db.ExecContext(ctx, touchAuthSession, arg.LastSeenAt, arg.TokenHash)
 	return err
 }

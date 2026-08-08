@@ -453,6 +453,16 @@ func TestLogout(t *testing.T) {
 		if svc.gotLogout != "the-session-token" {
 			t.Errorf("expected the service to receive the session token, got %q", svc.gotLogout)
 		}
+		// Regression guard: the clearing cookie must carry the same Path as
+		// the cookie set at login, or the browser scopes the deletion to
+		// this route and leaves the original Path=/ cookie behind.
+		cookie := findSessionCookie(w)
+		if cookie == nil {
+			t.Fatal("expected a session cookie to be set")
+		}
+		if cookie.Path != "/" {
+			t.Errorf("expected the logout cookie path %q, got %q", "/", cookie.Path)
+		}
 	})
 	t.Run("Success when no session is provided", func(t *testing.T) {
 		svc := &fakeService{

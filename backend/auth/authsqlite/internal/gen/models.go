@@ -19,8 +19,8 @@ type Principal struct {
 }
 
 type Session struct {
-	ID        []byte
-	UserID    int64
-	CreatedAt time.Time
-	RevokedAt sql.NullTime
+	ID         []byte
+	UserID     int64
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 }

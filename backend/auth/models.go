@@ -16,10 +16,10 @@ type Principal struct {
 }
 
 type Session struct {
-	TokenHash [32]byte   `json:"id"`
-	UserID    int        `json:"userId"`
-	CreatedAt time.Time  `json:"createdAt,omitzero"`
-	RevokedAt *time.Time `json:"revokedAt,omitzero"`
+	TokenHash  [32]byte  `json:"id"`
+	UserID     int       `json:"userId"`
+	CreatedAt  time.Time `json:"createdAt,omitzero"`
+	LastSeenAt time.Time `json:"lastSeenAt,omitzero"`
 }
 
 var (
@@ -29,5 +29,4 @@ var (
 	ErrInvalidCredentials = errs.Domain("invalidCredentials", "invalid credentials", errs.Unauthenticated)
 	ErrSessionConflict    = errs.Domain("session.conflict", "session already exists", errs.Conflict)
 	ErrUnauthenticated    = errs.Domain("unauthenticated", "unauthenticated", errs.Unauthenticated)
-	ErrSessionRevoked     = errs.Domain("session.revoked", "session revoked", errs.Unauthenticated)
 )

@@ -66,10 +66,14 @@ func (h Handler) Mount(r *httpx.Router) {
 		},
 		func(w http.ResponseWriter, out struct{}) error {
 			// Clear the session cookie by setting it to an empty value and
-			// MaxAge=0, which tells the browser to delete it.
+			// MaxAge=-1, which tells the browser to delete it. Path must
+			// match the cookie set at login (Path=/), or the browser scopes
+			// the deletion to this route and leaves the original cookie
+			// behind.
 			http.SetCookie(w, &http.Cookie{
 				Name:   sessionCookieName,
 				Value:  "",
+				Path:   "/",
 				MaxAge: -1,
 			})
 			return httpx.NoContent(w, out)
@@ -90,8 +94,12 @@ func (h Handler) Mount(r *httpx.Router) {
 }
 
 // DefaultCookieMaxAge is the session cookie lifetime used when Config.MaxAge
-// is left at its zero value.
-const DefaultCookieMaxAge = 7 * 24 * time.Hour
+// is left at its zero value. Derived from auth.SessionMaxAge so the cookie
+// and the server-side absolute cap never drift apart. A session may still be
+// rejected sooner than this by auth.SessionIdleTimeout — that rule is
+// enforced server-side only, so an idle-expired cookie can still be present
+// in the browser until it naturally falls off at this Max-Age.
+const DefaultCookieMaxAge = auth.SessionMaxAge
 
 const sessionCookieName = "session"
 

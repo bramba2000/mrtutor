@@ -21,6 +21,19 @@ type Service struct {
 	unitOfWork     UnitOfWork
 }
 
+const (
+	// SessionMaxAge caps a session's total lifetime regardless of activity.
+	// Exported because authhttp derives the cookie's Max-Age from it, keeping
+	// the client- and server-side windows from drifting apart.
+	SessionMaxAge = 7 * 24 * time.Hour
+	// SessionIdleTimeout ends a session after this long without a request.
+	SessionIdleTimeout = 3 * time.Hour
+	// sessionTouchInterval is how stale last_seen_at may get before it is
+	// rewritten, trading up to this much slack on the idle window for roughly
+	// one write per interval per active session instead of one per request.
+	sessionTouchInterval = 5 * time.Minute
+)
+
 type LoginIn struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
@@ -54,10 +67,12 @@ func (svc Service) Login(ctx context.Context, in LoginIn) (string, error) {
 	}
 	tokenHash := sha256.Sum256([]byte(sessionToken))
 
+	now := time.Now().UTC()
 	_, err = svc.sessionStore.Create(ctx, Session{
-		TokenHash: tokenHash,
-		UserID:    principal.ID,
-		CreatedAt: time.Now().UTC(),
+		TokenHash:  tokenHash,
+		UserID:     principal.ID,
+		CreatedAt:  now,
+		LastSeenAt: now,
 	})
 	if err != nil {
 		return "", err
@@ -137,10 +152,12 @@ func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, er
 			return err
 		}
 
+		now := time.Now().UTC()
 		_, err = stores.Session.Create(ctx, Session{
-			TokenHash: tokenHash,
-			UserID:    principal.ID,
-			CreatedAt: time.Now().UTC(),
+			TokenHash:  tokenHash,
+			UserID:     principal.ID,
+			CreatedAt:  now,
+			LastSeenAt: now,
 		})
 		if err != nil {
 			return err
@@ -158,7 +175,7 @@ func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, er
 
 func (svc Service) Logout(ctx context.Context, sessionToken string) error {
 	tokenHash := sha256.Sum256([]byte(sessionToken))
-	err := svc.sessionStore.Revoke(ctx, tokenHash)
+	err := svc.sessionStore.Delete(ctx, tokenHash)
 	if err != nil && !errors.Is(err, ErrSessionNotFound) {
 		return err
 	}
@@ -174,21 +191,31 @@ func (svc Service) Authenticate(ctx context.Context, sessionToken string) (Princ
 		}
 		return Principal{}, err
 	}
-	if session.RevokedAt != nil {
-		return Principal{}, ErrSessionRevoked
+
+	now := time.Now().UTC()
+	if now.Sub(session.CreatedAt) >= SessionMaxAge || now.Sub(session.LastSeenAt) >= SessionIdleTimeout {
+		// Same sentinel as "no such session" on purpose: the response must
+		// not tell a caller whether the token ever existed.
+		return Principal{}, ErrUnauthenticated
 	}
 
 	principal, err := svc.principalStore.GetByID(ctx, session.UserID)
 	if err != nil {
-		return Principal{}, fmt.Errorf("failed to get principal for session %v: %w", session, err)
+		return Principal{}, fmt.Errorf("failed to get principal for session of user %d: %w", session.UserID, err)
+	}
+
+	if now.Sub(session.LastSeenAt) >= sessionTouchInterval {
+		if err := svc.sessionStore.Touch(ctx, tokenHash, now); err != nil {
+			return Principal{}, fmt.Errorf("touch session: %w", err)
+		}
 	}
 
 	return principal, nil
 }
 
 func (svc Service) CleanupExpiredSessions(ctx context.Context) error {
-	timeout := time.Now().Add(-10 * 24 * time.Hour) // 10 days
-	err := svc.sessionStore.DeleteExpired(ctx, timeout)
+	now := time.Now().UTC()
+	err := svc.sessionStore.DeleteExpired(ctx, now.Add(-SessionMaxAge), now.Add(-SessionIdleTimeout))
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
 	}

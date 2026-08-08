@@ -22,12 +22,15 @@ type PrincipalStore interface {
 type SessionStore interface {
 	// Create creates a new session in the repository.
 	Create(ctx context.Context, session Session) (Session, error)
-	// Revoke revokes a session by its ID.
-	Revoke(ctx context.Context, sessionId [32]byte) error
 	// GetByID retrieves a session by its ID.
 	GetByID(ctx context.Context, sessionId [32]byte) (Session, error)
-	// DeleteExpired deletes all sessions that are revoked or created before the specified expiration time.
-	DeleteExpired(ctx context.Context, expirationTime time.Time) error
+	// Touch records that the session was used at the given time.
+	Touch(ctx context.Context, sessionId [32]byte, at time.Time) error
+	// Delete removes a session. Deleting an absent session is not an error.
+	Delete(ctx context.Context, sessionId [32]byte) error
+	// DeleteExpired deletes sessions created before createdBefore or last seen
+	// before lastSeenBefore.
+	DeleteExpired(ctx context.Context, createdBefore, lastSeenBefore time.Time) error
 }
 
 type UnitOfWork interface {
