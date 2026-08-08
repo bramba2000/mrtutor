@@ -58,6 +58,8 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 				validation.Min(time.Duration(0))),
 			ReadinessDrainPeriod: get(l, "READINESS_DRAIN_PERIOD", 5*time.Second, parseDuration,
 				validation.Min(time.Duration(0))),
+			RequestTimeout: get(l, "REQUEST_TIMEOUT", 30*time.Second, parseDuration,
+				validation.Min(time.Duration(0))),
 		},
 		// SCHEDULER_ prefixed, unlike every setting above: DRAIN_PERIOD and
 		// SHUTDOWN_TIMEOUT are already taken by the HTTP server's own

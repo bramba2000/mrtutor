@@ -18,6 +18,13 @@ func (w *recorder) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the underlying ResponseWriter so http.ResponseController
+// (and type assertions for http.Flusher/http.Hijacker) can see through this
+// wrapper, per the net/http Unwrap convention.
+func (w *recorder) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // AccessLog creates a middleware that logs HTTP requests using the provided logger.
 func AccessLog(logger *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {

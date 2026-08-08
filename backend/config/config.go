@@ -35,6 +35,9 @@ type Server struct {
 	Port                 int
 	ShutdownTimeout      time.Duration
 	ReadinessDrainPeriod time.Duration
+	// RequestTimeout bounds how long a single request's context stays valid
+	// (see httpx.Timeout). Zero disables the per-request deadline.
+	RequestTimeout time.Duration
 }
 
 // Address returns the host:port pair the server should listen on.

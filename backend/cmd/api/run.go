@@ -47,7 +47,7 @@ func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, 
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	router := httpx.NewRouter("/api/v1", httpx.RequestID(), httpx.AccessLog(logger), httpx.Recover(logger), httpx.MaxBytes())
+	router := httpx.NewRouter("/api/v1", httpx.RequestID(), httpx.AccessLog(logger), httpx.Recover(logger), httpx.MaxBytes(), httpx.Timeout(cfg.Server.RequestTimeout))
 	svcs := createServices(db)
 
 	registerRoutes(svcs, router, logger, cfg)

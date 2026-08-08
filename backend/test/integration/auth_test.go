@@ -309,4 +309,30 @@ func TestAuth(t *testing.T) {
 			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+	t.Run("Session lifecycle: logout invalidates the session for later requests", func(t *testing.T) {
+		meReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		addCookie := authenticateRequest(t, authStorage.SessionStore, principal, meReq)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, meReq)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200 before logout, got %d: %s", w.Code, w.Body.String())
+		}
+
+		logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		addCookie(logoutReq)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, logoutReq)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected status 204 for logout, got %d: %s", w.Code, w.Body.String())
+		}
+
+		secondMeReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		addCookie(secondMeReq)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, secondMeReq)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401 for the same session after logout, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }

@@ -25,3 +25,20 @@ tasks:
     cmds:
       - go tool -modfile=go.tool.mod sqlc generate
     silent: true
+  vet:
+    desc: "Run go vet across the module"
+    cmds:
+      - go vet ./...
+    silent: true
+  build:
+    desc: "Build all packages"
+    cmds:
+      - go build ./...
+    silent: true
+  verify:
+    desc: "Pre-release check: vet, build, and the full test suite with the race detector"
+    cmds:
+      - task: vet
+      - task: build
+      - go test -race ./...
+    silent: true

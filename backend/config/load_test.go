@@ -54,6 +54,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Server.ReadinessDrainPeriod != 5*time.Second {
 		t.Errorf("Server.ReadinessDrainPeriod = %v, want 5s", cfg.Server.ReadinessDrainPeriod)
 	}
+	if cfg.Server.RequestTimeout != 30*time.Second {
+		t.Errorf("Server.RequestTimeout = %v, want 30s", cfg.Server.RequestTimeout)
+	}
 	if got := cfg.Server.Address(); got != "localhost:8080" {
 		t.Errorf("Server.Address() = %q, want %q", got, "localhost:8080")
 	}
@@ -90,6 +93,7 @@ func TestLoadAllValidValues(t *testing.T) {
 		"PORT":                       "9090",
 		"SHUTDOWN_TIMEOUT":           "30s",
 		"READINESS_DRAIN_PERIOD":     "10s",
+		"REQUEST_TIMEOUT":            "5s",
 		"SCHEDULER_LOCATION":         "Europe/Rome",
 		"SCHEDULER_DRAIN_PERIOD":     "20s",
 		"SCHEDULER_SHUTDOWN_TIMEOUT": "45s",
@@ -127,6 +131,9 @@ func TestLoadAllValidValues(t *testing.T) {
 	}
 	if cfg.Server.ReadinessDrainPeriod != 10*time.Second {
 		t.Errorf("Server.ReadinessDrainPeriod = %v, want 10s", cfg.Server.ReadinessDrainPeriod)
+	}
+	if cfg.Server.RequestTimeout != 5*time.Second {
+		t.Errorf("Server.RequestTimeout = %v, want 5s", cfg.Server.RequestTimeout)
 	}
 	wantLoc, err := time.LoadLocation("Europe/Rome")
 	if err != nil {
@@ -183,6 +190,8 @@ func TestLoadInvalidValues(t *testing.T) {
 		"zero READ_POOL_SIZE":                 {"READ_POOL_SIZE": "0"},
 		"bad SHUTDOWN_TIMEOUT":                {"SHUTDOWN_TIMEOUT": "abc"},
 		"negative timeout":                    {"SHUTDOWN_TIMEOUT": "-5s"},
+		"bad REQUEST_TIMEOUT":                 {"REQUEST_TIMEOUT": "abc"},
+		"negative REQUEST_TIMEOUT":            {"REQUEST_TIMEOUT": "-1s"},
 		"bad APP_MODE":                        {"APP_MODE": "staging"},
 		"bad LOG_FORMAT":                      {"LOG_FORMAT": "yaml"},
 		"bad LOG_LEVEL":                       {"LOG_LEVEL": "nonsense"},
