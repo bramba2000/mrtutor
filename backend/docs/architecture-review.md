@@ -1,5 +1,7 @@
 # mrtutor backend — architecture review
 
+> **Reconciliation note (as of `dec0542`, 2026-08-08).** This review and its companion `docs/architecture-tasks.md` were both re-checked against the current tree. Everything below §1/§2 is left as originally written — a point-in-time snapshot at `9dddb6e` — with per-section **Status:** annotations added where the code has since moved. The headline claims in §2 ("auth is half-built," "no middleware layer at all," "transaction abstraction... never connected") are **no longer true**: Phases 4 through 7 and 9 landed session authentication, a middleware/router layer, and transactional `Register`, well ahead of the task-list checkboxes being updated to reflect it. See §4.7, §5.1–§5.3, §5.6, and the "Found reconciling..." notes under §6 and §8 for what's actually still open — chiefly the missing `expires_at` migration (§5.2), the missing Phase 6 atomicity regression test (§5.3), CORS/per-request-timeout middleware (§5.1), and Phase 8 delivery (CI/Docker/lint), none of which existed at either check.
+
 ## 1. Scope and method
 
 Reviewed at commit `9dddb6e`, against the working tree (which contains an in-progress move of `cmd/api/server.go` → `cmd/api/http/server.go`).
@@ -103,11 +105,15 @@ Adding a feature requires editing `cmd/api/service.go`, `cmd/api/routes.go`, **a
 
 `sqlite/` holds connection management, migrations, error translation, **and** the auth adapter. At ten features it is `sqlite/{auth,courses,lessons,scheduling,billing}.go` — one package importing every domain package, with one flat namespace holding `PrincipalStore`, `CourseStore`, `principalFromDB`, `courseFromDB`, and so on. Two costs: `go test ./sqlite` runs every feature's adapter tests and recompiles on any domain change, and no domain package can ever import `sqlite` without a cycle. Today that last constraint is invisible; it is being accepted silently.
 
+**Status: resolved (Phase 5).** The auth adapter moved to `auth/authsqlite/{principal,session,build}.go`; `sqlite/` is now connection management, migrations, error translation, and the transaction helper only. `go list -deps ./sqlite` contains no domain package — verified directly, not just claimed.
+
 ### 4.4 `sqlite/internal` — a name mismatch, and a hard block on any future split
 
 The directory is `internal`, the package is `gen`, so every import needs an alias: `gen "github.com/.../backend/sqlite/internal"`.
 
 More importantly — and this is the decisive fact for §7 — Go's internal rule means `backend/sqlite/internal/...` is importable **only from within `backend/sqlite/...`**. The encapsulation is real and correct. But it also means a per-feature storage adapter package **cannot compile against `gen`** until codegen is relocated. The current directory layout does not merely favour the layered design; it enforces it.
+
+**Status: resolved (Phase 5).** `sqlite/internal` no longer exists. `sqlc.yml` generates auth's code into `auth/authsqlite/internal/gen`, reachable only from `auth/authsqlite/...` — the encapsulation this section predicted is now per-feature rather than per-repo.
 
 ### 4.5 `authHandler` blocks HTTP-level unit testing
 
@@ -130,9 +136,9 @@ An exported constructor returning an unexported type gives callers a value they 
 ### 4.7 Smaller points
 
 - **`isShuttingDown atomic.Bool`** is a package-level global in `main` (`main.go:18`) read by `healthHandler` (`routes.go:22`) — process state shared through a global rather than injected. **Status: resolved (Phase 3).** Both the global and `healthHandler`/`GET /health` are deleted; nothing wrote the flag by the time this landed (a `Readiness` value introduced in Phase 1 had already superseded it), so `/health` was unconditionally 200 — a probe that cannot fail is worse than no probe.
-- **Liveness and readiness are conflated** on one `GET /health`. **Status: resolved (Phase 1/3).** Split into `/livez` and `/readyz`; the latter was mounted at `/healthz` until Phase 3 renamed it, and its handler had an inverted branch (503 while healthy, 200 while draining) until Phase 3 fixed that too — see the new defect recorded in `docs/architecture-tasks.md`'s Phase 3 section.
+- **Liveness and readiness are conflated** on one `GET /health`. **Status: partially resolved.** Split into `/livez` and (still) `/healthz` — `cmd/api/run.go` mounts `router.Handle("/healthz", readiness.Handler())` and `router.Handle("/livez", httpx.Liveness())`. The readiness handler's inverted branch (503 while healthy, 200 while draining) was genuinely fixed in Phase 3 — see the new defect recorded in `docs/architecture-tasks.md`'s Phase 3 section — but the `/healthz` → `/readyz` rename this line and Phase 1/3 both claimed never happened. **Correction as of this review pass:** re-verified directly against `cmd/api/run.go`; still `/healthz`.
 - **`cmd/api/http` is named `http`**, forcing an alias at every import site — and the tree already contains two spellings, `ehttp` (`main.go:13`) and `handlers` (`test/integration/auth_test.go:15`). **Status: resolved (Phase 3).** Renamed to `httpx`; a third spelling this bullet didn't catch, `httpstdlib` (aliasing `net/http` in `server_test.go` to avoid the collision), is also gone. No import site of the HTTP kit or `auth/authhttp` uses an alias.
-- **Dead code:** `auth.Stores` and `auth.UnitOfWork` (zero implementations), `sqlite.DB.InTx` (zero callers), `ok`/`created`/`noContent` (tests only), `Session.RevokedAt` and `sessions.revoked_at` (never read or written). **Partial update:** `ok`/`created`/`noContent` (now exported `OK`/`Created`/`NoContent`) are no longer tests-only — `Created` is live in `authhttp.NewHandler`'s Register path since Phase 3. The rest is unchanged and awaits Phase 6/7.
+- **Dead code:** `auth.Stores` and `auth.UnitOfWork` (zero implementations), `sqlite.DB.InTx` (zero callers), `ok`/`created`/`noContent` (tests only), `Session.RevokedAt` and `sessions.revoked_at` (never read or written). **Update (Phase 3/6/7):** `ok`/`created`/`noContent` (now exported `OK`/`Created`/`NoContent`) are no longer tests-only — `Created` is live in `authhttp.NewHandler`'s Register path since Phase 3. `auth.Stores` and `auth.UnitOfWork` now have real implementations (`sqlite.BuildUow`, `auth/authsqlite.Build`) and are live in `Service.Register`. `Session.RevokedAt`/`sessions.revoked_at` are now read and written — `SessionStore.Revoke` writes it, `Service.Authenticate` reads it. **Still dead, and freshly re-confirmed:** `sqlite.DB.InTx` still has zero callers — Phase 6 built a separate mechanism (`sqlite/uow.go`'s `BuildUow`) instead of using it.
 
 ---
 
@@ -151,6 +157,8 @@ Grep for `func(http.Handler) http.Handler` returns zero hits outside tests. Ther
 
 This is the difference between an app with two endpoints and an app that can grow. It needs no dependency.
 
+**Status: mostly resolved (Phase 4/7).** `httpx` now has a `Middleware`/`Chain`/`Router` layer with `RequestID`, `AccessLog`, `Recover`, and `MaxBytes` (body-size limit), wired in outermost-first order in `cmd/api/run.go`; session authentication landed as `auth/authhttp.RequireSession` (Phase 7). **Still genuinely missing:** no per-request timeout middleware and no CORS middleware exist anywhere in `httpx` — `grep -ri cors` over the tree returns nothing. Also worth noting: `Router.Group` (the mechanism this layer's design centers on for scoping middleware like `RequireSession` to a subset of routes) is never actually called outside its own test — `RequireSession` is applied by direct function-wrapping around one handler (`GET /auth/me`) rather than through `Group`, so the `Group`/`slices.Clone` design has no real consumer yet. And `httpx/accesslog.go`'s `recorder` — the `ResponseWriter` wrapper this section's own Phase 4 plan later warns about — does not implement `Unwrap() http.ResponseWriter`, so it would hide `http.Flusher`/`http.Hijacker` from any handler that needed them (none do today, so it's latent).
+
 ### 5.2 Sessions are write-only — auth is half-built
 
 `SessionStore` has one method, `Create`. There is no `GetActive`, `Revoke`, or `DeleteExpired`, and `PrincipalStore` has no `GetByID`. Therefore:
@@ -159,6 +167,8 @@ This is the difference between an app with two endpoints and an app that can gro
 - **No logout.** `revoked_at` exists in the schema and is never touched.
 - **No server-side expiry.** `sessionCookieMaxAge` is a *cookie* attribute, which is client-controlled — a stolen token is valid forever.
 - No column or index supports expiry cleanup.
+
+**Status: mostly resolved (Phase 7).** `auth.Service` now has `Authenticate` and `Logout`; `SessionStore` gained `Revoke`, `GetByID`, and `DeleteExpired`; `PrincipalStore` gained `GetByID`; `auth/authhttp`'s `RequireSession` middleware authenticates requests and populates the context. **Still genuinely open:** no server-side expiry column exists — no migration ever added `expires_at` to `sessions`. In its place, a scheduled `CleanupExpiredSessions` task (added in `dec0542`) deletes sessions older than a hardcoded 10 days measured against `created_at`, which is a Go-side batch policy contingent on the scheduler running, not the database invariant this section calls for. A stolen, unrevoked token is still valid indefinitely between cleanup runs.
 
 ### 5.3 `Register` is not atomic — the dead `UnitOfWork` has a real cost
 
@@ -169,6 +179,8 @@ The consequence: `Service.Register` (`service.go:108-139`) creates the principal
 The blocker is structural. The stores bind to `db.W` / `db.R` at each call site (`gen.New(p.db.W)`), so they cannot join a caller's transaction. `auth.Stores` also lacks a `Sessions` field, so it could not express this use case even if implemented.
 
 There is a related trap waiting in the current `InTx` signature. It hands out a bare `*sql.Tx`, which leaves a store free to keep reading from `db.R`. Under WAL, `db.R` is a *different physical connection* and cannot see uncommitted rows — so a read-your-own-write inside a transaction would silently return stale data. Whatever replaces this must make the correct handle the only reachable one.
+
+**Status: resolved (Phase 6), with two follow-on notes.** `auth.Stores` now has `Session`; `sqlite/uow.go`'s `BuildUow` (a new generic, not the old `DB.InTx`) drives a transaction and rebuilds `authsqlite` stores from the same `*sql.Tx` for both read and write — closing the read-your-own-write trap by construction, exactly as recommended. `Service.Register` wraps both `Create` calls in one `RunInTx`, hashing the password and minting the token beforehand as specified. Two things worth flagging: (1) the old `sqlite.DB.InTx` this section describes was not repurposed and is dead code again — `sqlite/uow.go` is an entirely separate, parallel mechanism; (2) `uow.go`'s `RunInTx` discards the rollback error outright (`tx.Rollback()`, return value unchecked) rather than joining it with the original error, which is the same defect class as #15 below, reintroduced in the code path that's actually live. Also still missing: the regression test this fix is supposed to be provable by (force the session insert to fail, assert no `users` row survives) does not exist — see `docs/architecture-tasks.md` Phase 6.
 
 ### 5.4 `main()` has no testable seam, and failures exit 0
 
@@ -200,6 +212,8 @@ If the port is in use this logs once and the goroutine exits. `main` then blocks
 
 `NewServer` sets `Addr`, `Handler`, `ErrorLog`, and `BaseContext` — and nothing else. `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` are all zero, meaning **no limit**. A handful of slow-header connections can hold goroutines indefinitely (Slowloris). `ReadHeaderTimeout` is the one that matters most and costs one line.
 
+**Status: resolved.** `httpx.Config` (`httpx/server.go`) carries all four fields and `NewServer` sets them on the underlying `http.Server`; `cmd/api/run.go` supplies them from `config.Server`. `docs/architecture-tasks.md`'s Phase 1 checklist had this left unticked past the point the fix actually landed — corrected there.
+
 ### 5.7 Observability stops at logging
 
 No metrics, no tracing, no `net/http/pprof`, no request IDs — so there is no way to correlate the log lines belonging to one request. A request-scoped logger has to come from the context, which requires middleware (§5.1).
@@ -224,9 +238,9 @@ No metrics, no tracing, no `net/http/pprof`, no request IDs — so there is no w
 | 3 | `cmd/api/main.go:30,40` | **Startup failures exit 0** (§5.4). |
 | 4 | `cmd/api/http/server.go:39-46` | **Listen error swallowed** → live process serving nothing (§5.5). |
 | 5 | `auth/service.go:108-139` | **`Register` is not atomic** → orphaned accounts that cannot be retried (§5.3). |
-| 6 | `cmd/api/http/server.go:26-33` | **No server timeouts** — Slowloris exposure (§5.6). |
+| 6 | `cmd/api/http/server.go:26-33` | **No server timeouts** — Slowloris exposure (§5.6). **Status: resolved.** See §5.6. |
 | 7 | `cmd/api/http/auth.go:25-29,39-44` | **Cookie hardening.** Neither cookie sets `Secure`, `SameSite`, or `Path`. Login sets no `Expires`/`MaxAge` (browser-session cookie) while Register sets 7 days — inconsistent lifetime for the same credential. **Status: resolved (Phase 3).** Also fixed in the same pass: `MaxAge` was computed as `int(sessionCookieMaxAge)` on a `time.Duration`, i.e. nanoseconds (604800000000000) fed to a seconds field — a defect this table never caught. `Secure` is now an `authhttp.Config` field sourced from `APP_MODE`, not hardcoded, so local dev over plain HTTP still receives the cookie. |
-| 8 | `cmd/api/http/codec.go:15-21` | **No `http.MaxBytesReader`** — request bodies are unbounded. Still open; scheduled for Phase 4's middleware set alongside the other body-size and timeout concerns, not fixed piecemeal. |
+| 8 | `cmd/api/http/codec.go:15-21` | **No `http.MaxBytesReader`** — request bodies are unbounded. **Status: resolved (Phase 4).** `httpx/maxbytes.go`'s `MaxBytes()` middleware (`http.MaxBytesHandler`, 1MB) is wired into the chain in `cmd/api/run.go`. |
 | 9 | `sqlite/auth.go:35` | **PII in logs.** The op string is `"get principal by token "+usernameOrEmail`, and `writeError` logs the error on every rejected request — so every failed login writes the submitted username or email to the log. |
 | 10 | `auth/service_test.go:83,93` | **Broken test fixture.** `mockPrincipalStore.Create` has a **value receiver** but does `m.count += 1`; the increment is discarded, so every principal gets `ID = 1` and each call overwrites `db[1]`. It passes only because no test seeds two principals into one store. The same fake returns the *correct* `auth.ErrPrincipalNotFound` — which is exactly why defect #2 was never caught by a unit test. |
 | 11 | `cmd/api/http/errors.go:94-98` | **Empty or truncated body → 500 instead of 400.** `isJsonDecodingError` matches only `*json.SyntaxError` and `*json.UnmarshalTypeError`, not `io.EOF` / `io.ErrUnexpectedEOF`. `curl -X POST /api/v1/auth/login` with no body returns 500 today. **Status: resolved** (landed ahead of Phase 3, per `docs/architecture-tasks.md`). The comment pointer to `errors_test.go:39-56` is now stale: those two cases named `"(known gap: should be 400, is 500)"` still asserted the *pre-fix* 500, leaving `go test ./...` red until Phase 3 corrected them to the 400/`invalid.json` the fix already produced. |
@@ -249,6 +263,19 @@ Not in the 19-item inventory above — these surfaced only once the Phase 3 file
 
 - **Readiness handler inverted** (`cmd/api/http/readiness.go`, now `httpx/readiness.go`). `Handler()` read `if r.Ready() { 503 }` — serving 503 while healthy and 200 while draining, the exact opposite of a readiness probe's contract. Zero test coverage before Phase 3 added `httpx/readiness_test.go`.
 - **Two "resolved" defects had reopened but untested code paths.** #7's cookie hardening and #19's Register status code were both marked done in `docs/architecture-tasks.md` before Phase 3, but neither had actually landed in the code — #7's `MaxAge` conversion bug (see the table row above) and #19's 204-vs-200-vs-201 three-way disagreement between the code, the doc, and the integration test were only caught because Phase 3 touched those files again. The standing lesson, recorded in `docs/architecture-tasks.md`'s Phase 0.3 notes: a fix must update the test that documented the bug, in the same commit — two packages' test suites were left red for a full phase because the Content-Type gate and defect #11's fix landed without that.
+
+### Found reconciling this review against the code after Phases 5–9
+
+Phases 5 through 7 and 9 landed in the codebase well ahead of `docs/architecture-tasks.md` being updated to reflect them — that doc was showing them as entirely unstarted when in fact most of the work was done. These items surfaced while re-reading the tree to correct that gap; none were previously recorded.
+
+- **`cmd/api/routes.go` has two route-registration functions**, one dead. Exported `RegisterRoutes(services, router, logger, authCfg authhttp.Config)` is unused and has a different signature from the live path; the actually-called `registerRoutes` (unexported) takes `cfg config.Config` instead.
+- **`sqlite.DB.InTx` is dead code again.** §4.7 flagged it as zero-caller before Phase 6; Phase 6 solved the same problem with a new, separate mechanism (`sqlite/uow.go`) rather than using it, so it's still zero-caller today.
+- **`sqlite/uow.go`'s `RunInTx` drops the rollback error.** Unlike `TranslateSQLError`'s accepted-as-is `%v` fallback (#14) or `db.go`'s `InTx` rollback formatting (#15, also accepted as-is because that method is dead) — this is a *fresh* instance of the same defect class, in the transaction path `Register` actually depends on today.
+- **The Phase 1/3 claim that readiness moved from `/healthz` to `/readyz` is false.** `cmd/api/run.go` still mounts the readiness handler at `/healthz`. See §4.7's updated status line.
+- **Defect #1's fix has no regression test.** `Login`'s enumeration fix (not-found → `ErrInvalidCredentials`, dummy-hash comparison) is implemented, but no unit or integration test compares the unknown-username and wrong-password responses to confirm they're indistinguishable.
+- **Phase 6's own acceptance test doesn't exist.** The transactional-`Register` mechanism is implemented and live, but nothing forces the session insert to fail and asserts the principal row doesn't survive — the test §5.3 and Phase 6 both call the proof of the fix has not been written.
+- **`httpx/accesslog.go`'s `recorder` doesn't implement `Unwrap() http.ResponseWriter`.** Phase 4's own plan (§8) calls this out as a requirement for any status-capturing `ResponseWriter` wrapper; the one that got built doesn't meet it. Latent — no current handler needs `Flusher`/`Hijacker` — but a landmine for the next one that does.
+- **`Router.Group` has no real consumer.** Phase 7's session middleware was wired by wrapping one handler directly (`requireSession(httpx.WrapNoInput(...))` around `GET /auth/me`) rather than via `r.Group(...)`, so the `slices.Clone`-on-`Group` design Phase 4 built specifically to avoid a sibling-group middleware leak has never been exercised by production code — only by its own test.
 
 ---
 
@@ -452,25 +479,37 @@ func WrapUnvalidated[In, Out any](...) http.HandlerFunc
 
 Order is load-bearing and outermost-first: `RequestID` → `AccessLog` → `Recover`, so the log carries the ID and a panic is still recorded with the 500 it produced. `Recover` must re-panic on `http.ErrAbortHandler`.
 
+**Status: mostly done.** `Middleware`/`Chain`/`Router` landed with the specified order and `slices.Clone` in `Group`. Two gaps: no `Timeout` or `CORS` middleware exist, and `httpx/accesslog.go`'s `recorder` doesn't implement `Unwrap()` — the exact hazard this section's second bullet warns about. `Router.Group` itself is also never called by production code (see the "Found reconciling..." note in §6) — Phase 7 wired `RequireSession` around a single handler instead. See `docs/architecture-tasks.md` Phase 4.
+
 **Phase 5 — the feature-first move.** Relocate codegen per §7.5; `sqlite/auth.go` → `auth/authsqlite/store.go`; `sqlite/errors.go` → `sqlite/sqlerr.go` with `Translate` exported; `authhttp` gains its `Service` interface and `Register(*httpx.Router)`. Gate: `go list -deps ./sqlite | grep mrtutor` returns nothing.
+
+**Status: done**, with naming that diverges from this paragraph: the store split into `principal.go`/`session.go` rather than one `store.go`; `sqlite/errors.go` kept its name and the exported function is `TranslateSQLError`, not `Translate`; the mount method is `Mount(*httpx.Router)`, not `Register` (avoiding the field-name collision Phase 3 already flagged). The dependency gate passes — `sqlite` imports no domain package. See `docs/architecture-tasks.md` Phase 5.
 
 **Phase 6 — transactions.** `sqlite.Conn{W, R Handle}` where **both fields point at the same `*sql.Tx`** inside a transaction (§5.3); stores built from a `Conn`; `authsqlite.UnitOfWork`; `auth.Stores` gains `Sessions`. Hash passwords and mint tokens *before* opening the transaction — bcrypt is ~60ms of CPU and the write pool holds one connection, so hashing inside a transaction blocks every other writer for that whole time. Do **not** route `Login` through the UoW: it is a read plus one single-statement insert, and wrapping it would serialise all logins for no atomicity gain. The regression test that proves the phase: force the session insert to fail, assert no `users` row survives. That test fails against today's code.
 
+**Status: mechanism done, proof test still missing.** There is no standalone `sqlite.Conn` type — `auth/authsqlite.Build` passes the same `*sql.Tx` as both read and write handles inside `sqlite.BuildUow`'s callback, which gets the same correctness property without the named type. `auth.Stores` gained `Session` (not `Sessions`); password hashing and token minting happen before the transaction opens; `Login` bypasses the UoW, all exactly as specified. The one thing not done: the regression test itself doesn't exist yet, so the fix is unverified by an automated test. See `docs/architecture-tasks.md` Phase 6.
+
 **Phase 7 — session authentication.** Migration `0003` adding `expires_at` plus an index, so expiry is a database invariant rather than a Go computation. `SessionStore.GetActive` / `Revoke` / `DeleteExpired`, `PrincipalStore.GetByID`, `Service.Authenticate` / `Logout`, a new `ErrInvalidSession`, and `RequireSession` middleware in `authhttp`. Two design points: every failure mode must collapse to one error so the endpoint is not a token oracle, and the principal goes into the context under an unexported zero-size key type with a typed accessor, never a bare string key.
 
+**Status: mostly done, one real gap.** `Authenticate`/`Logout`/`Revoke`/`GetByID`/`DeleteExpired`/`PrincipalStore.GetByID` and `RequireSession` all exist and are wired in. Two deviations from the design points: failure modes do **not** all collapse to one sentinel — a missing session yields `ErrUnauthenticated` while a revoked one yields `ErrSessionRevoked`, a distinction an attacker can use exactly as this paragraph warns against; and there is no dedicated `ErrInvalidSession`. The context key (`principalKey struct{}`) is correctly unexported and zero-size. **Migration `0003` was never written** — `expires_at` doesn't exist on `sessions`; a scheduled job deletes sessions past a hardcoded age instead of the database enforcing it. See `docs/architecture-tasks.md` Phase 7.
+
 **Phase 8 — delivery.** CI running `go vet`, `go test -race`, `golangci-lint`, and a build. A multi-stage Dockerfile on a glibc base (cgo). Response DTOs at the HTTP boundary, removing JSON tags from domain models. An OpenAPI decision before the frontend lands.
+
+**Status: not started.** No CI config, no Dockerfile, no lint config exist in the tree.
 
 ---
 
 ## 9. Verification
 
-- **`sqlite` is a leaf:** `go list -deps ./sqlite | grep mrtutor` returns nothing.
-- **`config` is not a library dependency:** `go list -deps ./sqlite ./httpx | grep config` returns nothing.
-- **Failures are visible:** `DATABASE_FILE=/nonexistent/x.db go run ./cmd/api; echo $?` prints non-zero.
-- **Port conflict is fatal:** two instances on the same port — the second exits non-zero promptly.
-- **No enumeration:** login with an unknown user and with a wrong password return byte-identical status and body.
-- **`Register` is atomic:** with the session insert forced to fail, no `users` row survives.
-- **Session lifecycle:** register → call an authenticated route with the cookie → logout → same call now 401.
-- **Routing is covered:** at least one test drives the real mux through `/api/v1/...` rather than calling a handler directly.
-- **Regression suite:** `task test` and `task unit-test` green; add `-race`.
-- **The scaling smoke test:** adding a second feature must touch only its own new directories, a new migration, one `sqlc.yml` block, and one line in `app.go`. If it requires editing `sqlite/`, `httpx/`, or a shared routes file, the layout failed and should be revisited before feature three.
+Status column added while reconciling this review against the current tree; see `docs/architecture-tasks.md`'s verification checklist for the detail behind each line.
+
+- **`sqlite` is a leaf:** `go list -deps ./sqlite | grep mrtutor` returns nothing. — **Passes** (the literal command always matches `sqlite`'s own path; verified by inspecting the full dependency list instead, which contains no other domain package).
+- **`config` is not a library dependency:** `go list -deps ./sqlite ./httpx | grep config` returns nothing. — **Passes.**
+- **Failures are visible:** `DATABASE_FILE=/nonexistent/x.db go run ./cmd/api; echo $?` prints non-zero. — **Not re-run** this pass; looks correct by inspection.
+- **Port conflict is fatal:** two instances on the same port — the second exits non-zero promptly. — **Not re-run** this pass; looks correct by inspection.
+- **No enumeration:** login with an unknown user and with a wrong password return byte-identical status and body. — **Fails today**: the fix is implemented but no test asserts this, so it's unverified rather than merely undone.
+- **`Register` is atomic:** with the session insert forced to fail, no `users` row survives. — **Fails today**: mechanism implemented (Phase 6), this specific test doesn't exist.
+- **Session lifecycle:** register → call an authenticated route with the cookie → logout → same call now 401. — **Close but not exact**: the integration suite tests logout and unauthenticated-401 as two independent cases, not the same session token carried through both steps.
+- **Routing is covered:** at least one test drives the real mux through `/api/v1/...` rather than calling a handler directly. — **Fails today**: the integration test builds its own bare router, bypassing `cmd/api`'s actual composition entirely.
+- **Regression suite:** `task test` and `task unit-test` green; add `-race`. — **`go build`/`go vet` clean**; `-race` still not in `Taskfile.yml`.
+- **The scaling smoke test:** adding a second feature must touch only its own new directories, a new migration, one `sqlc.yml` block, and one line in `app.go`. If it requires editing `sqlite/`, `httpx/`, or a shared routes file, the layout failed and should be revisited before feature three. — **Not yet testable**: no second feature has been started.
