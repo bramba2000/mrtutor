@@ -157,7 +157,7 @@ Grep for `func(http.Handler) http.Handler` returns zero hits outside tests. Ther
 
 This is the difference between an app with two endpoints and an app that can grow. It needs no dependency.
 
-**Status: mostly resolved (Phase 4/7).** `httpx` now has a `Middleware`/`Chain`/`Router` layer with `RequestID`, `AccessLog`, `Recover`, and `MaxBytes` (body-size limit), wired in outermost-first order in `cmd/api/run.go`; session authentication landed as `auth/authhttp.RequireSession` (Phase 7). **Still genuinely missing:** no per-request timeout middleware and no CORS middleware exist anywhere in `httpx` — `grep -ri cors` over the tree returns nothing. Also worth noting: `Router.Group` (the mechanism this layer's design centers on for scoping middleware like `RequireSession` to a subset of routes) is never actually called outside its own test — `RequireSession` is applied by direct function-wrapping around one handler (`GET /auth/me`) rather than through `Group`, so the `Group`/`slices.Clone` design has no real consumer yet. And `httpx/accesslog.go`'s `recorder` — the `ResponseWriter` wrapper this section's own Phase 4 plan later warns about — does not implement `Unwrap() http.ResponseWriter`, so it would hide `http.Flusher`/`http.Hijacker` from any handler that needed them (none do today, so it's latent).
+**Status: resolved (Phase 4/7/10).** `httpx` now has a `Middleware`/`Chain`/`Router` layer with `RequestID`, `AccessLog`, `Recover`, `MaxBytes` (body-size limit), and `Timeout` (per-request deadline), wired in outermost-first order in `cmd/api/run.go`; session authentication landed as `auth/authhttp.RequireSession` (Phase 7). **CORS was never added, and does not need to be**: Phase 10 embeds the built SPA in the same binary that serves `/api/v1` (`backend/web`, `cmd/api/newHandler`) and the Vite dev server proxies `/api` to the backend (`frontend/vite.config.ts`), so the browser only ever sees one origin, in both dev and production — the cross-origin request CORS exists to police never happens. This also keeps the session cookie's `SameSite=Lax` as-is; a cross-origin setup would have forced it to `SameSite=None; Secure`, which plain-HTTP dev traffic can't satisfy. Also worth noting: `Router.Group` (the mechanism this layer's design centers on for scoping middleware like `RequireSession` to a subset of routes) is never actually called outside its own test — `RequireSession` is applied by direct function-wrapping around one handler (`GET /auth/me`) rather than through `Group`, so the `Group`/`slices.Clone` design has no real consumer yet. And `httpx/accesslog.go`'s `recorder` — the `ResponseWriter` wrapper this section's own Phase 4 plan later warns about — does not implement `Unwrap() http.ResponseWriter`, so it would hide `http.Flusher`/`http.Hijacker` from any handler that needed them (none do today, so it's latent).
 
 ### 5.2 Sessions are write-only — auth is half-built
 
@@ -323,8 +323,12 @@ backend/
   validation/        unchanged
   httpx/             HTTP kit — imports NO domain package
     server.go router.go middleware.go recover.go requestid.go
-    accesslog.go timeout.go maxbytes.go cors.go readiness.go
+    accesslog.go timeout.go maxbytes.go readiness.go
     wrap.go codec.go errors.go
+    (no cors.go — see §5.1: same-origin dev proxy + single-binary
+    serving in production make it unnecessary, not merely deferred)
+  web/               embeds the built SPA; imports NO domain package (landed, Phase 10)
+    embed.go web.go dist/ (gitignored except dist/.gitkeep)
   scheduler/         background task kit — imports NO domain package (landed, Phase 9)
     scheduler.go schedule.go task.go
   sqlite/            INFRA ONLY — imports NO domain package
@@ -348,6 +352,7 @@ cmd/api ─┬─> auth/authhttp   ──> auth ──> errs, validation
          │                   ──> sqlite
          │                   ──> auth/authsqlite/internal/gen
          ├─> httpx           ──> errs, validation
+         ├─> web             (no dependencies — embedded assets only)
          ├─> scheduler       ──> errs, validation
          └─> config
 ```

@@ -1,3 +1,8 @@
 *.db
 *.db-wal
 *.db-shm
+
+# Vite build output, embedded by web/embed.go. .gitkeep is committed so the
+# //go:embed directive still compiles on a fresh clone.
+/web/dist/*
+!/web/dist/.gitkeep

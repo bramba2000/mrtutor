@@ -47,18 +47,20 @@ func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, 
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	router := httpx.NewRouter("/api/v1", httpx.RequestID(), httpx.AccessLog(logger), httpx.Recover(logger), httpx.MaxBytes(), httpx.Timeout(cfg.Server.RequestTimeout))
 	svcs := createServices(db)
+	readiness := &httpx.Readiness{}
 
-	registerRoutes(svcs, router, logger, cfg)
-
-	readiness := httpx.Readiness{}
-	router.Handle("/healthz", readiness.Handler())
-	router.Handle("/livez", httpx.Liveness())
+	handler, err := newHandler(svcs, readiness, logger, cfg)
+	if err != nil {
+		if cfg.AppMode == config.AppModeProd {
+			return fmt.Errorf("serve frontend: %w", err)
+		}
+		logger.Warn("frontend assets not built, serving 503 at /", "error", err)
+	}
 
 	srv := httpx.NewServer(httpx.Config{
 		Address:         cfg.Server.Address(),
-		Handler:         router,
+		Handler:         handler,
 		Logger:          logger,
 		LogLevel:        cfg.Log.Level,
 		ShutdownTimeout: cfg.Server.ShutdownTimeout,
