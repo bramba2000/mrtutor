@@ -57,6 +57,15 @@ func TestLoadDefaults(t *testing.T) {
 	if got := cfg.Server.Address(); got != "localhost:8080" {
 		t.Errorf("Server.Address() = %q, want %q", got, "localhost:8080")
 	}
+	if cfg.Scheduler.Location != time.UTC {
+		t.Errorf("Scheduler.Location = %v, want %v", cfg.Scheduler.Location, time.UTC)
+	}
+	if cfg.Scheduler.DrainPeriod != 5*time.Second {
+		t.Errorf("Scheduler.DrainPeriod = %v, want 5s", cfg.Scheduler.DrainPeriod)
+	}
+	if cfg.Scheduler.ShutdownTimeout != 15*time.Second {
+		t.Errorf("Scheduler.ShutdownTimeout = %v, want 15s", cfg.Scheduler.ShutdownTimeout)
+	}
 }
 
 func TestLoadDefaultFormatFollowsLogFile(t *testing.T) {
@@ -71,16 +80,19 @@ func TestLoadDefaultFormatFollowsLogFile(t *testing.T) {
 
 func TestLoadAllValidValues(t *testing.T) {
 	cfg, err := config.Load(lookupFrom(map[string]string{
-		"APP_MODE":               "prod",
-		"LOG_LEVEL":              "DEBUG",
-		"LOG_FILE":               "/tmp/app.log",
-		"LOG_FORMAT":             "text",
-		"DATABASE_FILE":          "app.db",
-		"READ_POOL_SIZE":         "8",
-		"HOST":                   "0.0.0.0",
-		"PORT":                   "9090",
-		"SHUTDOWN_TIMEOUT":       "30s",
-		"READINESS_DRAIN_PERIOD": "10s",
+		"APP_MODE":                   "prod",
+		"LOG_LEVEL":                  "DEBUG",
+		"LOG_FILE":                   "/tmp/app.log",
+		"LOG_FORMAT":                 "text",
+		"DATABASE_FILE":              "app.db",
+		"READ_POOL_SIZE":             "8",
+		"HOST":                       "0.0.0.0",
+		"PORT":                       "9090",
+		"SHUTDOWN_TIMEOUT":           "30s",
+		"READINESS_DRAIN_PERIOD":     "10s",
+		"SCHEDULER_LOCATION":         "Europe/Rome",
+		"SCHEDULER_DRAIN_PERIOD":     "20s",
+		"SCHEDULER_SHUTDOWN_TIMEOUT": "45s",
 	}))
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil", err)
@@ -115,6 +127,19 @@ func TestLoadAllValidValues(t *testing.T) {
 	}
 	if cfg.Server.ReadinessDrainPeriod != 10*time.Second {
 		t.Errorf("Server.ReadinessDrainPeriod = %v, want 10s", cfg.Server.ReadinessDrainPeriod)
+	}
+	wantLoc, err := time.LoadLocation("Europe/Rome")
+	if err != nil {
+		t.Fatalf("time.LoadLocation(%q) error = %v", "Europe/Rome", err)
+	}
+	if cfg.Scheduler.Location.String() != wantLoc.String() {
+		t.Errorf("Scheduler.Location = %v, want %v", cfg.Scheduler.Location, wantLoc)
+	}
+	if cfg.Scheduler.DrainPeriod != 20*time.Second {
+		t.Errorf("Scheduler.DrainPeriod = %v, want 20s", cfg.Scheduler.DrainPeriod)
+	}
+	if cfg.Scheduler.ShutdownTimeout != 45*time.Second {
+		t.Errorf("Scheduler.ShutdownTimeout = %v, want 45s", cfg.Scheduler.ShutdownTimeout)
 	}
 }
 
@@ -154,17 +179,21 @@ func TestLoadTaskfileDefault(t *testing.T) {
 
 func TestLoadInvalidValues(t *testing.T) {
 	cases := map[string]map[string]string{
-		"bad READ_POOL_SIZE":   {"READ_POOL_SIZE": "abc"},
-		"zero READ_POOL_SIZE":  {"READ_POOL_SIZE": "0"},
-		"bad SHUTDOWN_TIMEOUT": {"SHUTDOWN_TIMEOUT": "abc"},
-		"negative timeout":     {"SHUTDOWN_TIMEOUT": "-5s"},
-		"bad APP_MODE":         {"APP_MODE": "staging"},
-		"bad LOG_FORMAT":       {"LOG_FORMAT": "yaml"},
-		"bad LOG_LEVEL":        {"LOG_LEVEL": "nonsense"},
-		"port too large":       {"PORT": "70000"},
-		"port negative":        {"PORT": "-1"},
-		"blank DATABASE_FILE":  {"DATABASE_FILE": "   "},
-		"blank LOG_FILE":       {"LOG_FILE": "   "},
+		"bad READ_POOL_SIZE":                  {"READ_POOL_SIZE": "abc"},
+		"zero READ_POOL_SIZE":                 {"READ_POOL_SIZE": "0"},
+		"bad SHUTDOWN_TIMEOUT":                {"SHUTDOWN_TIMEOUT": "abc"},
+		"negative timeout":                    {"SHUTDOWN_TIMEOUT": "-5s"},
+		"bad APP_MODE":                        {"APP_MODE": "staging"},
+		"bad LOG_FORMAT":                      {"LOG_FORMAT": "yaml"},
+		"bad LOG_LEVEL":                       {"LOG_LEVEL": "nonsense"},
+		"port too large":                      {"PORT": "70000"},
+		"port negative":                       {"PORT": "-1"},
+		"blank DATABASE_FILE":                 {"DATABASE_FILE": "   "},
+		"blank LOG_FILE":                      {"LOG_FILE": "   "},
+		"bad SCHEDULER_LOCATION":              {"SCHEDULER_LOCATION": "Not/AZone"},
+		"bad SCHEDULER_DRAIN_PERIOD":          {"SCHEDULER_DRAIN_PERIOD": "abc"},
+		"negative SCHEDULER_DRAIN_PERIOD":     {"SCHEDULER_DRAIN_PERIOD": "-1s"},
+		"negative SCHEDULER_SHUTDOWN_TIMEOUT": {"SCHEDULER_SHUTDOWN_TIMEOUT": "-1s"},
 	}
 
 	for name, env := range cases {

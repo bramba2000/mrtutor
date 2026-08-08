@@ -59,6 +59,16 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 			ReadinessDrainPeriod: get(l, "READINESS_DRAIN_PERIOD", 5*time.Second, parseDuration,
 				validation.Min(time.Duration(0))),
 		},
+		// SCHEDULER_ prefixed, unlike every setting above: DRAIN_PERIOD and
+		// SHUTDOWN_TIMEOUT are already taken by the HTTP server's own
+		// settings, and the two components' values are independent.
+		Scheduler: Scheduler{
+			Location: get(l, "SCHEDULER_LOCATION", time.UTC, parseLocation),
+			DrainPeriod: get(l, "SCHEDULER_DRAIN_PERIOD", 5*time.Second, parseDuration,
+				validation.Min(time.Duration(0))),
+			ShutdownTimeout: get(l, "SCHEDULER_SHUTDOWN_TIMEOUT", 15*time.Second, parseDuration,
+				validation.Min(time.Duration(0))),
+		},
 	}
 
 	return cfg, l.errs.Err()

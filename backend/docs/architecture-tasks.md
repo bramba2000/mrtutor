@@ -147,6 +147,22 @@ Auth is currently half-built: sessions are minted and never verified. `SessionSt
 
 ---
 
+## Phase 9 — Background scheduler
+
+- [x] New `scheduler/` package, a domain-free kit sibling to `httpx`/`sqlite` — verified by `go list -deps ./scheduler | grep mrtutor` returning only `errs` and `validation`. In-process, goroutine-based: one goroutine per registered `Task`, so two runs of the same task can never overlap (skipping an overrun fire is a consequence of that loop's shape, not a policy it checks for).
+- [x] `Schedule` is a pure interface, `Next(start, last time.Time) (time.Time, bool)`, so schedules are shareable values and testable as an unordered table. Built-ins: `Once`/`OnceAt` (fire exactly once), `Every` (optionally `.After(delay)`), and `Periodic.Within(Window)` — a recurring wall-clock span that expresses suspension ("every 5m, but only weekdays 09:00–18:00") declaratively, with no runtime `Suspend`/`Resume` state. Cron expression *parsing* is out of scope; the interface is shaped so `Cron(expr)` drops in later using `last` as its base and `start` as the fallback on the first call, with no change to the run loop.
+- [x] A task returning an error wrapping `scheduler.ErrFatal` stops the whole `Scheduler` and propagates the error out of `Run`; a panic is always recovered, logged with its stack, and never fatal. Both are `runOnce`'s job, alongside `Task.Timeout`.
+- [x] Shutdown drains in-flight runs on a live (`context.WithoutCancel`) task context for up to `Config.DrainPeriod`, and only cancels them if that elapses; the whole sequence is bounded by `Config.ShutdownTimeout`. A clean shutdown returns nil, never `ctx.Err()` — the same rule Phase 1 established for `httpx.Server`.
+- [x] `cmd/api/run.go` now runs `httpx.Server` and `scheduler.Scheduler` under one `errgroup.WithContext`, promoting `golang.org/x/sync` from indirect to direct — the first place this repo needed two long-lived components to tear each other down. `cmd/api/tasks.go` mirrors `routes.go`: the one line a future task addition touches. No task is registered yet.
+- [x] `config.Scheduler{Location, DrainPeriod, ShutdownTimeout}`, loaded via the existing `get` helper under a `SCHEDULER_` prefix — the one departure from this file's flat-name convention, because `DRAIN_PERIOD`/`SHUTDOWN_TIMEOUT` are already taken by `Server`'s own settings.
+- [x] Tests use `testing/synctest` for deterministic timing (fires, skips, drain/cancel) — the first use of it in this repo, and still no `Clock` seam, consistent with `auth.Service`'s direct `time.Now()` calls.
+
+### Defect found while manually verifying this phase
+
+- [x] **First fire silently skipped in production.** `nextFireTime`'s skip-catch-up loop compared the very first computed fire time against a freshly sampled `time.Now()`. For any schedule with no initial delay, that first fire equals `start`, which is captured once at the top of `Run` — before any task goroutine is spawned. By the time a task's goroutine actually samples `now`, real wall-clock time has already ticked forward by whatever scheduling latency the runtime introduced, so `next.Before(now)` was always true and the task's legitimate first run was discarded as a bogus "previous run overran" catch-up. `testing/synctest`'s fake clock never advances during plain CPU work, so no test caught this — only running the real binary did. Fixed by never applying the skip check when `last` is still zero (nothing has run yet, so there is nothing to have overrun); regression-tested with a `ScheduleFunc` that fabricates an already-past first fire deterministically, since the real race can't be reproduced under the fake clock.
+
+---
+
 ## Verification checklist (from the review, §9)
 
 - [ ] `sqlite` is a leaf: `go list -deps ./sqlite | grep mrtutor` → nothing.
@@ -159,3 +175,5 @@ Auth is currently half-built: sessions are minted and never verified. `SessionSt
 - [ ] Routing is covered: at least one test drives the real mux through `/api/v1/...` rather than calling a handler directly.
 - [ ] Regression suite: `task test` and `task unit-test` green; add `-race`.
 - [ ] Scaling smoke test: adding a second feature touches only its own new directories, a new migration, one `sqlc.yml` block, and one line in `app.go`. If it requires editing `sqlite/`, `httpx/`, or a shared routes file, the layout failed and should be revisited before feature three.
+- [x] `scheduler` is domain-free: `go list -deps ./scheduler | grep mrtutor` → only `errs` and `validation`.
+- [x] SIGTERM with a job in flight drains it and exits 0; a task returning `scheduler.ErrFatal` tears the HTTP server down too and exits 1 (verified against the compiled binary, not `go run`, whose own signal handling isn't representative — see Phase 9).

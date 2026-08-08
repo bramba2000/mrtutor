@@ -43,3 +43,14 @@ func parseLevel(s string) (slog.Level, error) {
 	}
 	return lvl, nil
 }
+
+// parseLocation loads an IANA time zone name (e.g. "Europe/Rome"). It relies
+// on the system zoneinfo database, which the Phase 8 glibc-based image
+// provides; a scratch image would need a blank import of time/tzdata.
+func parseLocation(s string) (*time.Location, error) {
+	loc, err := time.LoadLocation(strings.TrimSpace(s))
+	if err != nil {
+		return nil, errors.New("must be a valid IANA time zone name, such as \"UTC\" or \"Europe/Rome\"")
+	}
+	return loc, nil
+}

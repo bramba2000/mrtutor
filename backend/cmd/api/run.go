@@ -12,7 +12,9 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/config"
 	"github.com/bramba2000/mrtutor/backend/httpx"
+	"github.com/bramba2000/mrtutor/backend/scheduler"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
+	"golang.org/x/sync/errgroup"
 )
 
 func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, bool)) (err error) {
@@ -64,7 +66,20 @@ func run(ctx context.Context, stderr io.Writer, lookupEnv func(string) (string, 
 		OnShuttingDown:  readiness.Shutdown,
 	})
 
-	return srv.Run(rootCtx)
+	sched := scheduler.New(scheduler.Config{
+		Logger:          logger,
+		Location:        cfg.Scheduler.Location,
+		DrainPeriod:     cfg.Scheduler.DrainPeriod,
+		ShutdownTimeout: cfg.Scheduler.ShutdownTimeout,
+	})
+	if err := registerTasks(sched, svcs); err != nil {
+		return fmt.Errorf("register scheduled tasks: %w", err)
+	}
+
+	g, gctx := errgroup.WithContext(rootCtx)
+	g.Go(func() error { return srv.Run(gctx) })
+	g.Go(func() error { return sched.Run(gctx) })
+	return g.Wait()
 }
 
 func newLogger(cfg config.Log, fallback io.Writer) (*slog.Logger, func() error, error) {

@@ -296,6 +296,8 @@ backend/
     server.go router.go middleware.go recover.go requestid.go
     accesslog.go timeout.go maxbytes.go cors.go readiness.go
     wrap.go codec.go errors.go
+  scheduler/         background task kit — imports NO domain package (landed, Phase 9)
+    scheduler.go schedule.go task.go
   sqlite/            INFRA ONLY — imports NO domain package
     db.go tx.go migrate.go sqlerr.go
     migrations/      stays central (fact 2)
@@ -317,6 +319,7 @@ cmd/api ─┬─> auth/authhttp   ──> auth ──> errs, validation
          │                   ──> sqlite
          │                   ──> auth/authsqlite/internal/gen
          ├─> httpx           ──> errs, validation
+         ├─> scheduler       ──> errs, validation
          └─> config
 ```
 
