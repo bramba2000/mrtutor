@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type uow[Stores any] struct {
@@ -16,11 +17,8 @@ func (u *uow[Stores]) RunInTx(ctx context.Context, fn func(Stores) error) error 
 		return err
 	}
 
-	err = fn(u.buildStores(tx))
-
-	if err != nil {
-		tx.Rollback()
-		return err
+	if err := fn(u.buildStores(tx)); err != nil {
+		return errors.Join(err, tx.Rollback())
 	}
 
 	return tx.Commit()

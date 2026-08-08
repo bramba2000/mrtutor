@@ -165,6 +165,31 @@ func TestAuth(t *testing.T) {
 			t.Fatalf("expected status 401, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+	t.Run("Unknown user and wrong password are indistinguishable", func(t *testing.T) {
+		unknownUserReq := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
+			Token:    "does-not-exist",
+			Password: "whatever",
+		})
+		wrongPasswordReq := newJSONRequest(t, http.MethodPost, "/auth/login", auth.LoginIn{
+			Token:    principal.Username,
+			Password: "wrongpassword",
+		})
+
+		unknownUserW := httptest.NewRecorder()
+		router.ServeHTTP(unknownUserW, unknownUserReq)
+		wrongPasswordW := httptest.NewRecorder()
+		router.ServeHTTP(wrongPasswordW, wrongPasswordReq)
+
+		if unknownUserW.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401 for unknown user, got %d: %s", unknownUserW.Code, unknownUserW.Body.String())
+		}
+		if unknownUserW.Code != wrongPasswordW.Code {
+			t.Errorf("expected identical status codes, got %d (unknown user) and %d (wrong password)", unknownUserW.Code, wrongPasswordW.Code)
+		}
+		if unknownUserW.Body.String() != wrongPasswordW.Body.String() {
+			t.Errorf("expected byte-identical bodies, got %q (unknown user) and %q (wrong password)", unknownUserW.Body.String(), wrongPasswordW.Body.String())
+		}
+	})
 	t.Run("Successul registration when valid credentials", func(t *testing.T) {
 		req := newJSONRequest(t, http.MethodPost, "/auth/register", auth.RegisterIn{
 			Username: "newuser",

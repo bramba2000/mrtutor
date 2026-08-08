@@ -71,6 +71,34 @@ func TestService_Login(t *testing.T) {
 			})
 		}
 	})
+
+	// Regression test for defect #1 (user enumeration): an unknown
+	// username/email and a wrong password for a known account must be
+	// indistinguishable to the caller, both in error identity and in
+	// whether bcrypt ran (timing).
+	t.Run("Unknown token and wrong password are indistinguishable", func(t *testing.T) {
+		_, errUnknown := service.Login(context.Background(), auth.LoginIn{
+			Token:    "does-not-exist",
+			Password: password,
+		})
+		_, errWrongPassword := service.Login(context.Background(), auth.LoginIn{
+			Token:    principal.Username,
+			Password: "wrong-password",
+		})
+
+		if !errors.Is(errUnknown, auth.ErrInvalidCredentials) {
+			t.Errorf("expected unknown token to fail with ErrInvalidCredentials, got %v", errUnknown)
+		}
+		if !errors.Is(errWrongPassword, auth.ErrInvalidCredentials) {
+			t.Errorf("expected wrong password to fail with ErrInvalidCredentials, got %v", errWrongPassword)
+		}
+		if errUnknown != errWrongPassword {
+			t.Errorf("expected both failures to be the same error value, got %v and %v", errUnknown, errWrongPassword)
+		}
+		if errors.Is(errUnknown, auth.ErrPrincipalNotFound) {
+			t.Error("the store's not-found error must not leak past Login")
+		}
+	})
 }
 
 type mockPrincipalStore struct {

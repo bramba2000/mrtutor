@@ -45,30 +45,6 @@ func (db *DB) Close() error {
 	return errors.Join(wErr, rErr)
 }
 
-// InTx executes the provided function within a database transaction.
-//
-// If the function returns an error, the transaction is rolled back; otherwise, it is committed.
-// The context is used for managing the transaction's lifetime and cancellation. If reaching the [db.W] while in a transaction, it will be blocked until the transaction is completed (committed or rolled back).
-func (db *DB) InTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
-	tx, err := db.W.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	if err := fn(tx); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return fmt.Errorf("failed to rollback transaction: %v (original error: %w)", rbErr, err)
-		}
-		return fmt.Errorf("transaction function returned an error: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
-}
-
 // dsn returns the Data Source Name (DSN) for connecting to a SQLite database at the given path.
 // The write parameter determines whether the DSN is for a read-write connection (true) or a read-only connection (false).
 func dsn(path string, write bool) (string, error) {
