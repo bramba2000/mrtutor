@@ -97,6 +97,10 @@ Purely additive — existing routes keep working.
 - [ ] `Router.Group` must `slices.Clone` the middleware slice — without it, two sibling groups appending to a chain with spare capacity write into the same backing array, and one group silently inherits another's auth middleware (a security bug, and the most common defect in hand-rolled Go routers).
 - [ ] Any `ResponseWriter` wrapper for status capture must implement `Unwrap() http.ResponseWriter`, or it hides `http.Flusher`/`http.Hijacker` from handlers.
 
+### Defect found and fixed outside this phase's own scope
+
+- [x] **`Recover` ran its error-mapping branch on every request, panic or not.** `httpx/recover.go:14` read `if rec := recover(); r != nil` — testing the `*http.Request` (always non-nil), not the recovered value. On a normal request this silently attempted to overwrite an already-committed response with a spurious "unknown panic" 500 (visible only as an access-log status mismatch and an "http: superfluous response.WriteHeader" debug line, since the real bytes were already on the wire) and logged a fake "panic recovered" on every single request. First observed live while manually verifying Phase 9's scheduler (an unrelated `curl /livez`), flagged there as out of scope, and fixed here as its own change. Fixed by comparing `rec != nil`; `httpx/recover_test.go` (previously nonexistent — this middleware had zero test coverage) pins the no-panic path alongside string/error/other panic values and the `http.ErrAbortHandler` re-panic.
+
 ---
 
 ## Phase 5 — Feature-first restructure
