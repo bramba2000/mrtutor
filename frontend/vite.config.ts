@@ -4,19 +4,15 @@ import { devtools } from '@tanstack/devtools-vite'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 
 import viteReact from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import mantinePreset from 'postcss-preset-mantine'
+import postcssSimpleVars from 'postcss-simple-vars'
 
-// The backend is reached through this proxy rather than by absolute URL so
-// the browser sees a single origin in dev. That is what lets the session
-// cookie (SameSite=Lax, Secure only in production) work over plain HTTP, and
-// it is why the backend needs no CORS middleware.
 const backend = process.env.BACKEND_URL ?? 'http://localhost:8080'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
     devtools(),
-    tailwindcss(),
     tanstackRouter({ target: 'react', autoCodeSplitting: true }),
     viteReact(),
   ],
@@ -28,6 +24,22 @@ const config = defineConfig({
     // backend/web/embed.go.
     outDir: '../backend/web/dist',
     emptyOutDir: false,
+  },
+  css: {
+    postcss: {
+      plugins: [
+        mantinePreset(),
+        postcssSimpleVars({
+          variables: {
+            'mantine-breakpoint-xs': '36em',
+            'mantine-breakpoint-sm': '48em',
+            'mantine-breakpoint-md': '62em',
+            'mantine-breakpoint-lg': '75em',
+            'mantine-breakpoint-xl': '88em',
+          },
+        }),
+      ],
+    },
   },
 })
 
