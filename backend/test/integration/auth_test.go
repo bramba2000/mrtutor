@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
-	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
-	"github.com/bramba2000/mrtutor/backend/auth/authsqlite"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authsqlite"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 	"golang.org/x/crypto/bcrypt"

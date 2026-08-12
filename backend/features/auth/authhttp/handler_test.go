@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
-	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 )
 

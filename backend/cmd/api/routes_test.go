@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
 	"github.com/bramba2000/mrtutor/backend/config"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 )

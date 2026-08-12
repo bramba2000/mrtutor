@@ -3,7 +3,7 @@ package authsqlite
 import (
 	"database/sql"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
 

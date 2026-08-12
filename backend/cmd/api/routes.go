@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/bramba2000/mrtutor/backend/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/config"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/web"
 )

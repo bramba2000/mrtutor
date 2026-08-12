@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
-	"github.com/bramba2000/mrtutor/backend/auth/authsqlite/internal/gen"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authsqlite/internal/gen"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
 )
 

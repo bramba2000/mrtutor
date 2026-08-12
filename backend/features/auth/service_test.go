@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bramba2000/mrtutor/backend/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"golang.org/x/crypto/bcrypt"
 )
 
