@@ -9,6 +9,10 @@ tasks:
       - go run ./cmd/api
     env:
         LOG_LEVEL: -4
+        # Skip the readiness drain window on every dev restart — it exists to
+        # give a load balancer time to notice a draining pod, which doesn't
+        # apply to `go run`/local dev.
+        READINESS_DRAIN_PERIOD: 0s
     silent: true
   test:
     desc: "Run the test suit (unit and integration tests)"

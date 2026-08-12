@@ -320,4 +320,166 @@ func TestServer_Serve(t *testing.T) {
 			t.Fatalf("Serve() error = nil, want an error from a forced close after the shutdown timeout")
 		}
 	})
+
+	t.Run("Respects the drain period before shutting down", func(t *testing.T) {
+		ln, err := nettest.NewLocalListener("tcp")
+		if err != nil {
+			t.Fatalf("Failed to create local listener: %v", err)
+		}
+
+		const drainPeriod = 300 * time.Millisecond
+		readiness := &httpx.Readiness{}
+		srv := httpx.NewServer(httpx.Config{
+			Address:         ln.Addr().String(),
+			Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
+			LogLevel:        slog.LevelDebug,
+			ShutdownTimeout: 5 * time.Second,
+			DrainPeriod:     drainPeriod,
+			Handler:         readiness.Handler(),
+			OnShuttingDown:  readiness.Shutdown,
+		})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		errChan := make(chan error, 1)
+		go func() { errChan <- srv.Serve(ctx, ln) }()
+
+		if _, exited := waitServerReady(t, ctx, ln.Addr().String(), errChan); exited {
+			t.Fatalf("Server exited before becoming ready")
+		}
+
+		start := time.Now()
+		cancel() // stop gracefully; the drain period should hold the listener open
+
+		// Immediately after cancelling, and for the whole drain period, the
+		// listener must still be reachable and reporting not-ready — this is
+		// the regression check: without the drain, Shutdown closes the
+		// listener in the same instant onShuttingDown flips readiness, and
+		// this request would fail with connection refused instead of 503.
+		resp, err := http.Get("http://" + ln.Addr().String())
+		if err != nil {
+			t.Fatalf("Request during drain period failed: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("Status during drain period = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+		}
+
+		select {
+		case err = <-errChan:
+		case <-t.Context().Done():
+			t.Fatalf("Test timed out waiting for server to shut down")
+		}
+		if err != nil {
+			t.Fatalf("Serve() error = %v, want nil", err)
+		}
+		if elapsed := time.Since(start); elapsed < drainPeriod {
+			t.Errorf("Serve() returned after %v, want at least the drain period %v", elapsed, drainPeriod)
+		}
+	})
+
+	t.Run("Drain period counts against the shutdown timeout", func(t *testing.T) {
+		ln, err := nettest.NewLocalListener("tcp")
+		if err != nil {
+			t.Fatalf("Failed to create local listener: %v", err)
+		}
+
+		const (
+			drainPeriod     = 200 * time.Millisecond
+			shutdownTimeout = 300 * time.Millisecond
+		)
+		handlerStarted := make(chan struct{})
+		srv := httpx.NewServer(httpx.Config{
+			Address:         ln.Addr().String(),
+			Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
+			LogLevel:        slog.LevelDebug,
+			ShutdownTimeout: shutdownTimeout,
+			DrainPeriod:     drainPeriod,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(handlerStarted)
+				// Outlives the remaining budget (shutdownTimeout-drainPeriod)
+				// so the forced close must happen at ~shutdownTimeout total,
+				// not shutdownTimeout *after* the drain elapses.
+				time.Sleep(10 * shutdownTimeout)
+			}),
+		})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		errChan := make(chan error, 1)
+		go func() { errChan <- srv.Serve(ctx, ln) }()
+
+		if _, exited := waitServerReady(t, ctx, ln.Addr().String(), errChan); exited {
+			t.Fatalf("Server exited before becoming ready")
+		}
+
+		go func() {
+			resp, err := http.Get("http://" + ln.Addr().String())
+			if err == nil {
+				resp.Body.Close()
+			}
+		}()
+		select {
+		case <-handlerStarted:
+		case <-t.Context().Done():
+			t.Fatalf("Test timed out waiting for the in-flight request to start")
+		}
+
+		start := time.Now()
+		cancel()
+
+		select {
+		case err = <-errChan:
+		case <-t.Context().Done():
+			t.Fatalf("Test timed out waiting for server to return an error")
+		}
+		if err == nil {
+			t.Fatalf("Serve() error = nil, want an error from a forced close after the shutdown timeout")
+		}
+		if elapsed := time.Since(start); elapsed > 2*shutdownTimeout {
+			t.Errorf("Serve() returned after %v, want the drain period to count against shutdownTimeout (~%v total)", elapsed, shutdownTimeout)
+		}
+	})
+
+	t.Run("Zero drain period shuts down immediately", func(t *testing.T) {
+		ln, err := nettest.NewLocalListener("tcp")
+		if err != nil {
+			t.Fatalf("Failed to create local listener: %v", err)
+		}
+
+		srv := httpx.NewServer(httpx.Config{
+			Address:         ln.Addr().String(),
+			Logger:          slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})),
+			LogLevel:        slog.LevelDebug,
+			ShutdownTimeout: 5 * time.Second,
+			DrainPeriod:     0,
+		})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		errChan := make(chan error, 1)
+		go func() { errChan <- srv.Serve(ctx, ln) }()
+
+		if _, exited := waitServerReady(t, ctx, ln.Addr().String(), errChan); exited {
+			t.Fatalf("Server exited before becoming ready")
+		}
+
+		start := time.Now()
+		cancel()
+
+		select {
+		case err = <-errChan:
+		case <-t.Context().Done():
+			t.Fatalf("Test timed out waiting for server to shut down")
+		}
+		if err != nil {
+			t.Fatalf("Serve() error = %v, want nil", err)
+		}
+		if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+			t.Errorf("Serve() returned after %v, want an immediate shutdown with a zero drain period", elapsed)
+		}
+	})
 }

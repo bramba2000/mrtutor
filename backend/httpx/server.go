@@ -39,6 +39,13 @@ func NewServer(cfg Config) *Server {
 	baseCtx, cancelBaseCtx := context.WithCancel(context.Background())
 	logger := cfg.Logger.With("component", "server")
 
+	drainPeriod := cfg.DrainPeriod
+	if drainPeriod >= cfg.ShutdownTimeout {
+		logger.Warn("drain period exceeds shutdown timeout, clamping to make room for shutdown",
+			"drainPeriod", drainPeriod, "shutdownTimeout", cfg.ShutdownTimeout)
+		drainPeriod = cfg.ShutdownTimeout / 2
+	}
+
 	return &Server{
 		server: &http.Server{
 			Addr:              cfg.Address,
@@ -53,7 +60,7 @@ func NewServer(cfg Config) *Server {
 		cancelBaseCtx:   cancelBaseCtx,
 		logger:          logger,
 		shutdownTimeout: cfg.ShutdownTimeout,
-		drainPeriod:     cfg.DrainPeriod,
+		drainPeriod:     drainPeriod,
 		onShuttingDown:  cfg.OnShuttingDown,
 	}
 }
@@ -67,6 +74,7 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	defer s.cancelBaseCtx()
 	s.logger.Info("server listening", "address", ln.Addr().String())
 
 	errCh := make(chan error, 1)
@@ -81,18 +89,37 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	case <-ctx.Done():
 	}
 
-	s.logger.Info("shutdown signal received, draining")
+	shutdownStart := time.Now()
+	s.logger.Info("shutdown signal received, draining", "drainPeriod", s.drainPeriod)
 	if s.onShuttingDown != nil {
 		s.onShuttingDown()
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
+	// The listener stays open for the whole drain period, so a load balancer
+	// or Kubernetes readiness probe has time to observe onShuttingDown's 503
+	// and stop routing new traffic before Shutdown closes the listener. This
+	// deliberately does not select on ctx: ctx is already cancelled (that's
+	// why we're here), so waiting on it again would return immediately and
+	// skip the drain entirely.
+	if s.drainPeriod > 0 {
+		drainTimer := time.NewTimer(s.drainPeriod)
+		defer drainTimer.Stop()
+		select {
+		case err := <-errCh:
+			if errors.Is(err, http.ErrServerClosed) {
+				return nil
+			}
+			return fmt.Errorf("server error: %w", err)
+		case <-drainTimer.C:
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout-time.Since(shutdownStart))
 	defer cancel()
 
 	err := s.server.Shutdown(shutdownCtx)
-	s.cancelBaseCtx()
 	if err != nil {
-		s.logger.Error("gracefylly shutdown timed out, forcing close", "error", err)
+		s.logger.Error("graceful shutdown timed out, forcing close", "error", err)
 		if closeErr := s.server.Close(); closeErr != nil {
 			return errors.Join(
 				fmt.Errorf("graceful shutdown: %w", err),
