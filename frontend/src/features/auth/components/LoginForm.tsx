@@ -6,11 +6,13 @@ import {
   Stack,
   TextInput,
   Title,
+  Text,
 } from '@mantine/core'
 import { useNavigate } from '@tanstack/react-router'
 import type { SubmitEvent } from 'react'
 import { useLoginMutation } from '#/features/auth/queries'
 import { ApiError, INVALID_CREDENTIALS_CODE } from '#/lib/api'
+import { RouterAncor } from '#/components/RouterAncor'
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const navigate = useNavigate()
@@ -44,6 +46,10 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         <Title size="h3" mb="md" ta="center">
           Login
         </Title>
+        <Text ta="center">
+          Do not have an account yet?{' '}
+          <RouterAncor to="/register">Register</RouterAncor>
+        </Text>
         <form onSubmit={handleSubmit}>
           <Stack>
             <Alert

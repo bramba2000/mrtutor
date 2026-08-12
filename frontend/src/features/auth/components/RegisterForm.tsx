@@ -6,11 +6,13 @@ import {
   Stack,
   TextInput,
   Title,
+  Text,
 } from '@mantine/core'
 import { useNavigate } from '@tanstack/react-router'
 import type { SubmitEvent } from 'react'
 import { useRegisterMutation } from '#/features/auth/queries'
 import { ApiError, PRINCIPAL_CONFLICT_CODE } from '#/lib/api'
+import { RouterAncor } from '#/components/RouterAncor'
 
 export function RegisterForm() {
   const navigate = useNavigate()
@@ -51,6 +53,12 @@ export function RegisterForm() {
         <Title size="h3" mb="md" ta="center">
           Register
         </Title>
+        <Text ta="center">
+          You already have an account?{' '}
+          <RouterAncor to="/login" search={{ redirect: '/' }}>
+            Log in
+          </RouterAncor>
+        </Text>
         <form onSubmit={handleSubmit}>
           <Stack>
             <Alert
