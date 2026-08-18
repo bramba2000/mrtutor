@@ -2,11 +2,19 @@
 
 version: "2"
 sql:
-  - engine: sqlite
-    schema: "sqlite/migrations/*.sql"
-    queries: "auth/authsqlite/*.sql"
-    gen:
-      go:
-        package: gen
-        out: "auth/authsqlite/internal/gen"
-        omit_unused_structs: true
+    - engine: sqlite
+      schema: "sqlite/migrations/*.sql"
+      queries: "features/auth/authsqlite/*.sql"
+      gen:
+          go:
+              package: gen
+              out: "features/auth/authsqlite/internal/gen"
+              omit_unused_structs: true
+    - engine: sqlite
+      schema: "sqlite/migrations/*.sql"
+      queries: "features/students/studentssqlite/*.sql"
+      gen:
+          go:
+              package: gen
+              out: "features/students/studentssqlite/internal/gen"
+              omit_unused_structs: true

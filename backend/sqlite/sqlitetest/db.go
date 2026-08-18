@@ -19,6 +19,7 @@ func OpenTemp(t testing.TB) *sqlite.DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
+	t.Logf("DB open at %s", path)
 	t.Cleanup(func() {
 		db.Close()
 	})
