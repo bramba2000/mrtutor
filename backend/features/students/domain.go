@@ -18,8 +18,8 @@ type Student struct {
 	// BirthDate is in the format of YYYY-MM-DD
 	BirthDate string `json:"birthDate"`
 
-	CreatedAt  time.Time `json:"create_at"`
-	ModifiedAt time.Time `json:"modified_at"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ModifiedAt time.Time `json:"modifiedAt"`
 }
 
 var (
