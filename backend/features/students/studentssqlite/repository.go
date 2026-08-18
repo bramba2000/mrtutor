@@ -3,8 +3,10 @@ package studentssqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
+	"github.com/bramba2000/mrtutor/backend/errs"
 	"github.com/bramba2000/mrtutor/backend/features/students"
 	"github.com/bramba2000/mrtutor/backend/features/students/studentssqlite/internal/gen"
 	"github.com/bramba2000/mrtutor/backend/sqlite"
@@ -15,36 +17,23 @@ type Repository struct {
 	W *gen.Queries
 }
 
-// Create implements [students.Repository].
-func (r Repository) Create(ctx context.Context, student students.Student) (int, error) {
-	birthDate, err := time.Parse(time.DateOnly, student.BirthDate)
-	if err != nil && student.BirthDate != "" {
-		return 0, err
-	}
-
-	id, err := r.W.CreateStudent(ctx, gen.CreateStudentParams{
-		DisplayName:  student.DisplayName,
-		Email:        sql.NullString{String: student.Email, Valid: student.Email != ""},
-		Phone:        sql.NullString{String: student.Phone, Valid: student.Phone != ""},
-		School:       sql.NullString{String: student.School, Valid: student.School != ""},
-		StudyProgram: sql.NullString{String: student.StudyProgram, Valid: student.StudyProgram != ""},
-		Class:        sql.NullString{String: student.Class, Valid: student.Class != ""},
-		BirthDate:    sql.NullTime{Time: birthDate, Valid: student.BirthDate != ""},
-		CreatedAt:    student.CreatedAt,
-	})
-	return int(id), err
-}
-
 // Delete implements [students.Repository].
 func (r Repository) Delete(ctx context.Context, id int) error {
-	return r.W.DeleteStudent(ctx, int64(id))
+	affected, err := r.W.DeleteStudent(ctx, int64(id))
+	if err != nil {
+		return sqlite.TranslateSQLError("students.Delete", err, students.ErrNotFound, nil)
+	}
+	if affected == 0 {
+		return fmt.Errorf("students.Delete: %w", students.ErrNotFound)
+	}
+	return nil
 }
 
 // GetAll implements [students.Repository].
 func (r Repository) GetAll(ctx context.Context) ([]students.Student, error) {
 	got, err := r.R.GetAllStudents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sqlite.TranslateSQLError("students.GetAll", err, nil, nil)
 	}
 	result := make([]students.Student, len(got))
 	for i, s := range got {
@@ -57,31 +46,35 @@ func (r Repository) GetAll(ctx context.Context) ([]students.Student, error) {
 func (r Repository) GetByID(ctx context.Context, id int) (students.Student, error) {
 	got, err := r.R.GetStudentById(ctx, int64(id))
 	if err != nil {
-		return students.Student{}, err
+		return students.Student{}, sqlite.TranslateSQLError("students.GetByID", err, students.ErrNotFound, nil)
 	}
 	return toStudent(got), nil
 }
 
-// Update implements [students.Repository].
-func (r Repository) Update(ctx context.Context, student students.Student) (students.Student, error) {
-	birthDate, err := time.Parse(time.DateOnly, student.BirthDate)
-	if err != nil {
-		return students.Student{}, err
+// Save implements [students.Repository].
+func (r Repository) Save(ctx context.Context, student students.Student) (students.Student, error) {
+	var birthDate time.Time
+	if student.BirthDate != "" {
+		var err error
+		birthDate, err = time.Parse(time.DateOnly, student.BirthDate)
+		if err != nil {
+			return students.Student{}, fmt.Errorf("students.Save: %w: %w", errs.Invalid, err)
+		}
 	}
 
-	model, err := r.W.UpdateStudent(ctx, gen.UpdateStudentParams{
+	model, err := r.W.SaveStudent(ctx, gen.SaveStudentParams{
+		ID:           int64(student.ID),
 		DisplayName:  student.DisplayName,
-		Email:        sql.NullString{String: student.Email, Valid: student.Email != ""},
-		Phone:        sql.NullString{String: student.Phone, Valid: student.Phone != ""},
-		School:       sql.NullString{String: student.School, Valid: student.School != ""},
-		StudyProgram: sql.NullString{String: student.StudyProgram, Valid: student.StudyProgram != ""},
-		Class:        sql.NullString{String: student.Class, Valid: student.Class != ""},
-		BirthDate:    sql.NullTime{Time: birthDate, Valid: student.BirthDate != ""},
-		ModifiedAt:   sql.NullTime{Time: student.ModifiedAt, Valid: true},
-		ID:           0,
+		Email:        sql.NullString{Valid: student.Email != "", String: student.Email},
+		Phone:        sql.NullString{Valid: student.Phone != "", String: student.Phone},
+		School:       sql.NullString{Valid: student.School != "", String: student.School},
+		StudyProgram: sql.NullString{Valid: student.StudyProgram != "", String: student.StudyProgram},
+		Class:        sql.NullString{Valid: student.Class != "", String: student.Class},
+		BirthDate:    sql.NullTime{Valid: !birthDate.IsZero(), Time: birthDate},
 	})
+
 	if err != nil {
-		return students.Student{}, err
+		return students.Student{}, sqlite.TranslateSQLError("students.Save", err, nil, nil)
 	}
 	return toStudent(model), nil
 }
@@ -96,6 +89,10 @@ func NewRepository(r *sqlite.DB) *Repository {
 var _ students.Repository = Repository{}
 
 func toStudent(s gen.Student) students.Student {
+	var birthDate string
+	if s.BirthDate.Valid {
+		birthDate = s.BirthDate.Time.Format(time.DateOnly)
+	}
 	return students.Student{
 		ID:           int(s.ID),
 		DisplayName:  s.DisplayName,
@@ -104,7 +101,7 @@ func toStudent(s gen.Student) students.Student {
 		School:       s.School.String,
 		StudyProgram: s.StudyProgram.String,
 		Class:        s.Class.String,
-		BirthDate:    s.BirthDate.Time.Format(time.DateOnly),
+		BirthDate:    birthDate,
 		CreatedAt:    s.CreatedAt,
 		ModifiedAt:   s.ModifiedAt.Time,
 	}

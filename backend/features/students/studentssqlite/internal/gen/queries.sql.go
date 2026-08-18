@@ -8,49 +8,18 @@ package gen
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
-const createStudent = `-- name: CreateStudent :one
-INSERT INTO students (display_name, email, phone, school, study_program, class, birth_date, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    RETURNING id
-`
-
-type CreateStudentParams struct {
-	DisplayName  string
-	Email        sql.NullString
-	Phone        sql.NullString
-	School       sql.NullString
-	StudyProgram sql.NullString
-	Class        sql.NullString
-	BirthDate    sql.NullTime
-	CreatedAt    time.Time
-}
-
-func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createStudent,
-		arg.DisplayName,
-		arg.Email,
-		arg.Phone,
-		arg.School,
-		arg.StudyProgram,
-		arg.Class,
-		arg.BirthDate,
-		arg.CreatedAt,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const deleteStudent = `-- name: DeleteStudent :exec
+const deleteStudent = `-- name: DeleteStudent :execrows
 DELETE FROM students WHERE id = ?
 `
 
-func (q *Queries) DeleteStudent(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteStudent, id)
-	return err
+func (q *Queries) DeleteStudent(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteStudent, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getAllStudents = `-- name: GetAllStudents :many
@@ -113,13 +82,23 @@ func (q *Queries) GetStudentById(ctx context.Context, id int64) (Student, error)
 	return i, err
 }
 
-const updateStudent = `-- name: UpdateStudent :one
-UPDATE students SET display_name = ?, email = ?, phone = ?, school = ?, study_program = ?, class = ?, birth_date = ?, modified_at = ?
-    WHERE id = ?
+const saveStudent = `-- name: SaveStudent :one
+INSERT INTO students (id, display_name, email, phone, school, study_program, class, birth_date, created_at)
+    VALUES (NULLIF(?1, 0), ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
+    ON CONFLICT (id) DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        email = EXCLUDED.email,
+        phone = EXCLUDED.phone,
+        school = EXCLUDED.school,
+        study_program = EXCLUDED.study_program,
+        class = EXCLUDED.class,
+        birth_date = EXCLUDED.birth_date,
+        modified_at = CURRENT_TIMESTAMP
     RETURNING id, display_name, email, phone, school, study_program, class, birth_date, created_at, modified_at
 `
 
-type UpdateStudentParams struct {
+type SaveStudentParams struct {
+	ID           interface{}
 	DisplayName  string
 	Email        sql.NullString
 	Phone        sql.NullString
@@ -127,12 +106,13 @@ type UpdateStudentParams struct {
 	StudyProgram sql.NullString
 	Class        sql.NullString
 	BirthDate    sql.NullTime
-	ModifiedAt   sql.NullTime
-	ID           int64
 }
 
-func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error) {
-	row := q.db.QueryRowContext(ctx, updateStudent,
+// This query will try to insert a new student record. If a record with the same id
+// already exists, it will update the existing record instead.
+func (q *Queries) SaveStudent(ctx context.Context, arg SaveStudentParams) (Student, error) {
+	row := q.db.QueryRowContext(ctx, saveStudent,
+		arg.ID,
 		arg.DisplayName,
 		arg.Email,
 		arg.Phone,
@@ -140,8 +120,6 @@ func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (S
 		arg.StudyProgram,
 		arg.Class,
 		arg.BirthDate,
-		arg.ModifiedAt,
-		arg.ID,
 	)
 	var i Student
 	err := row.Scan(

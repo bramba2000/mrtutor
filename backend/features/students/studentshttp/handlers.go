@@ -76,7 +76,7 @@ func (h Handler) Mount(router *httpx.Router) {
 		httpx.NoContent,
 		h.logger,
 	))
-	group.Handle("PUT /{id}", httpx.WrapUnvalidated(
+	group.Handle("PUT /{id}", httpx.Wrap(
 		func(r *http.Request) (students.UpdateIn, error) {
 			id, err := decodeStudentID(r)
 			if err != nil {

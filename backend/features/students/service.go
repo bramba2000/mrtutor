@@ -2,7 +2,6 @@ package students
 
 import (
 	"context"
-	"time"
 
 	"github.com/bramba2000/mrtutor/backend/validation"
 )
@@ -27,22 +26,22 @@ type StudentData struct {
 	BirthDate    string `json:"birthDate"`
 }
 
-func validateStudentData(student StudentData) error {
+func validateStudentData(student StudentData) validation.Errors {
 	return validation.Errors{
 		"displayName":  validation.Validate(student.DisplayName, validation.NotBlank, validation.MaxLength[string](256)),
 		"email":        validation.Optional(student.Email, validation.NotBlank, validation.MaxLength[string](256), validation.Email),
 		"phone":        validation.Optional(student.Phone, validation.NotBlank, validation.Phone),
-		"birthday":     validation.Optional(student.BirthDate, validation.NotBlank, validation.Date),
+		"birthDate":    validation.Optional(student.BirthDate, validation.NotBlank, validation.Date),
 		"school":       validation.Optional(student.School, validation.NotBlank, validation.MaxLength[string](256)),
 		"studyProgram": validation.Optional(student.StudyProgram, validation.NotBlank, validation.MaxLength[string](256)),
 		"class":        validation.Optional(student.Class, validation.NotBlank, validation.MaxLength[string](256)),
-	}.Err()
+	}
 }
 
 type CreateIn StudentData
 
 func (in CreateIn) Validate() error {
-	return validateStudentData(StudentData(in))
+	return validateStudentData(StudentData(in)).Err()
 }
 
 // Create creates a new student and returns the created student with its ID.
@@ -56,17 +55,9 @@ func (s Service) Create(ctx context.Context, in CreateIn) (Student, error) {
 		Class:        in.Class,
 		BirthDate:    in.BirthDate,
 		ID:           0,
-		CreatedAt:    time.Now().UTC(),
-		ModifiedAt:   time.Time{},
 	}
 
-	id, err := s.repo.Create(ctx, student)
-	if err != nil {
-		return Student{}, err
-	}
-
-	student.ID = id
-	return student, nil
+	return s.repo.Save(ctx, student)
 }
 
 // GetByID retrieves a student by its ID.
@@ -103,14 +94,13 @@ func (in UpdateIn) Validate() error {
 		Class:        in.Class,
 		BirthDate:    in.BirthDate,
 	}
-	err.Merge(validation.Errors(validateStudentData(studentData).(validation.Errors)))
+	err.Merge(validateStudentData(studentData))
 	return err.Err()
 }
 
 // Update updates an existing student and returns the updated student.
 func (s Service) Update(ctx context.Context, in UpdateIn) (Student, error) {
 	student := Student{
-		ID:           in.ID,
 		DisplayName:  in.DisplayName,
 		Email:        in.Email,
 		Phone:        in.Phone,
@@ -118,15 +108,9 @@ func (s Service) Update(ctx context.Context, in UpdateIn) (Student, error) {
 		StudyProgram: in.StudyProgram,
 		Class:        in.Class,
 		BirthDate:    in.BirthDate,
-		ModifiedAt:   time.Now().UTC(),
+		ID:           in.ID,
 	}
-
-	updated, err := s.repo.Update(ctx, student)
-	if err != nil {
-		return Student{}, err
-	}
-
-	return updated, nil
+	return s.repo.Save(ctx, student)
 }
 
 // Delete removes a student by its ID.
