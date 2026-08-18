@@ -14,6 +14,17 @@ import (
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 )
 
+// skipIfShort skips a test that needs a real sqlite database under `go test
+// -short` — sqlitetest.OpenTemp itself fails the test rather than skipping
+// it, so callers that want to be part of the unit-test suite's -short subset
+// must check this first.
+func skipIfShort(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+}
+
 // TestRegisterRoutes_RealMux drives requests through the actual composition
 // this binary uses at startup — createServices + registerRoutes mounted
 // under the same "/api/v1" prefix run.go uses — rather than the bare,
@@ -22,6 +33,7 @@ import (
 // method routing together; this closes that gap from the verification
 // checklist in docs/architecture-tasks.md.
 func TestRegisterRoutes_RealMux(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	svcs := createServices(db)
 	logger := slog.New(slog.DiscardHandler)
@@ -80,6 +92,7 @@ func TestRegisterRoutes_RealMux(t *testing.T) {
 // below branches on newHandler's own error return rather than assuming one
 // or the other.
 func TestNewHandler(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	svcs := createServices(db)
 	logger := slog.New(slog.DiscardHandler)

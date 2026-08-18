@@ -11,6 +11,17 @@ import (
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 )
 
+// skipIfShort skips a test that needs a real sqlite database under `go test
+// -short` — sqlitetest.OpenTemp itself fails the test rather than skipping
+// it, so callers that want to be part of the unit-test suite's -short subset
+// must check this first.
+func skipIfShort(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+}
+
 // seedTestPrincipal creates a principal to satisfy sessions' FK constraint.
 func seedTestPrincipal(t testing.TB, store auth.PrincipalStore, username string) auth.Principal {
 	t.Helper()
@@ -26,6 +37,7 @@ func seedTestPrincipal(t testing.TB, store auth.PrincipalStore, username string)
 }
 
 func TestSessionStore_CreateGetTouch(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	storage := authsqlite.Build(db)
 	principal := seedTestPrincipal(t, storage.PrincipalStore, "sessionowner")
@@ -78,6 +90,7 @@ func TestSessionStore_CreateGetTouch(t *testing.T) {
 }
 
 func TestSessionStore_GetByID_NotFound(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	storage := authsqlite.Build(db)
 
@@ -88,6 +101,7 @@ func TestSessionStore_GetByID_NotFound(t *testing.T) {
 }
 
 func TestSessionStore_Delete(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	storage := authsqlite.Build(db)
 	principal := seedTestPrincipal(t, storage.PrincipalStore, "logoutuser")
@@ -111,6 +125,7 @@ func TestSessionStore_Delete(t *testing.T) {
 }
 
 func TestSessionStore_DeleteExpired(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	storage := authsqlite.Build(db)
 	principal := seedTestPrincipal(t, storage.PrincipalStore, "cleanupuser")
