@@ -71,6 +71,22 @@ export async function post<T = void>(
   })
 }
 
+export async function put<T = void>(
+  url: string,
+  body: unknown,
+  init?: RequestInit,
+): Promise<T> {
+  return apiFetch<T>(url, {
+    ...init,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+    body: JSON.stringify(body),
+  })
+}
+
 async function toApiError(resp: Response): Promise<ApiError> {
   try {
     const data = await resp.json()

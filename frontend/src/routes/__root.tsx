@@ -1,6 +1,7 @@
 import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
+import { FormDevtoolsPanel } from '@tanstack/react-form-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { MantineProvider } from '@mantine/core'
 
@@ -34,6 +35,10 @@ function RootComponent() {
           {
             name: 'TanStack Query',
             render: <ReactQueryDevtoolsPanel />,
+          },
+          {
+            name: 'TanStack Form',
+            render: <FormDevtoolsPanel />,
           },
         ]}
       />
