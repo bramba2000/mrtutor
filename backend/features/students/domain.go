@@ -27,13 +27,13 @@ var (
 )
 
 type Repository interface {
-	// GetByID returns a student by ID, or ErrStudentNotFound if not found.
+	// GetByID returns a student by ID, or ErrNotFound if not found.
 	GetByID(ctx context.Context, id int) (Student, error)
 	// GetAll returns all students, or an empty slice if none found.
 	GetAll(ctx context.Context) ([]Student, error)
 	// Save saves a student. Try to save a student with an existing ID will update the student,
 	// otherwise it will create a new student. CreatedAt and ModifiedAt will be set to the current time in UTC.
 	Save(ctx context.Context, student Student) (Student, error)
-	// Delete deletes a student by ID, or ErrStudentNotFound if not found.
+	// Delete deletes a student by ID, or ErrNotFound if not found.
 	Delete(ctx context.Context, id int) error
 }
