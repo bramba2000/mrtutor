@@ -17,6 +17,7 @@ import (
 // the principal does not survive. Register (auth/service.go) depends on
 // this property to avoid orphaning an account when session creation fails.
 func TestUnitOfWork_RunInTx_RollsBackOnFailure(t *testing.T) {
+	skipIfShort(t)
 	db := sqlitetest.OpenTemp(t)
 	storage := authsqlite.Build(db)
 

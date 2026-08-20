@@ -5,25 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"slices"
 	"strings"
 )
-
-// Validator is a function that takes a value of type T and
-// returns an error if the value is invalid.
-type Validator[T any] func(T) error
-
-// Validate applies a list of validators to a value of type T
-// and returns a slice of errors.
-func Validate[T any](value T, validators ...Validator[T]) []error {
-	var errs []error
-	for _, validator := range validators {
-		if err := validator(value); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errs
-}
 
 // Required checks if the value is not the zero value for its type.
 //
@@ -140,4 +125,26 @@ func OneOf[T comparable](allowed ...T) Validator[T] {
 		}
 		return nil
 	}
+}
+
+// Phone checks if the string value is a valid phone number in E.164 format.
+func Phone(value string) error {
+	// Parse E.164 phone number format: +[country code][subscriber number including area code]
+	regex := regexp.MustCompile(`^\+(3[0-469]|4[0-13-9]|7|8[1-4629]|9[0-58])\d{6,14}$`)
+	matched := regex.MatchString(value)
+	if !matched {
+		return errors.New("must be a valid phone number")
+	}
+	return nil
+}
+
+// Date checks if the string value is a valid date in YYYY-MM-DD format.
+func Date(value string) error {
+	// Parse date format: YYYY-MM-DD
+	regex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	matched := regex.MatchString(value)
+	if !matched {
+		return errors.New("must be a valid date in YYYY-MM-DD format")
+	}
+	return nil
 }

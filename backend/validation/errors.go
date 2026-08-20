@@ -82,6 +82,15 @@ func (in Errors) Is(target error) bool {
 	return target == errs.Invalid
 }
 
+func (in Errors) Merge(other Errors) {
+	if other == nil {
+		return
+	}
+	for key, errs := range other {
+		in.Add(key, errs...)
+	}
+}
+
 func filterNil(errs []error) []error {
 	out := errs[:0:0]
 	for _, err := range errs {

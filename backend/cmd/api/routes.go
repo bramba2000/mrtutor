@@ -6,6 +6,7 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/config"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/features/students/studentshttp"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 	"github.com/bramba2000/mrtutor/backend/web"
 )
@@ -15,6 +16,7 @@ func registerRoutes(services Services, router *httpx.Router, logger *slog.Logger
 		Mount(*httpx.Router)
 	}{
 		authhttp.NewHandler(services.Auth, authhttp.Config{Secure: cfg.AppMode == config.AppModeProd}, logger),
+		studentshttp.NewHandler(services.Students, services.Auth, logger),
 	}
 
 	for _, h := range handlers {
