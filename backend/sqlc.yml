@@ -18,3 +18,11 @@ sql:
               package: gen
               out: "features/students/studentssqlite/internal/gen"
               omit_unused_structs: true
+    - engine: sqlite
+      schema: "sqlite/migrations/*.sql"
+      queries: "features/tutors/tutorssqlite/*.sql"
+      gen:
+          go:
+              package: gen
+              out: "features/tutors/tutorssqlite/internal/gen"
+              omit_unused_structs: true
