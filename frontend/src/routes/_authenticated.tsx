@@ -1,4 +1,4 @@
-import { Group } from '@mantine/core'
+import { AppShell, Group } from '@mantine/core'
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { LogoutButton } from '#/features/auth/components/LogoutButton'
 import { meQueryOptions } from '#/features/auth/queries'
@@ -21,10 +21,21 @@ export const Route = createFileRoute('/_authenticated')({
 function RouteComponent() {
   return (
     <>
-      <Group justify="flex-end" p="sm">
-        <LogoutButton />
-      </Group>
-      <Outlet />
+      <AppShell
+        header={{
+          offset: true,
+          height: { base: 40, sm: 48, lg: 56 },
+        }}
+      >
+        <AppShell.Header>
+          <Group justify="flex-end" h="100%" px="md">
+            <LogoutButton />
+          </Group>
+        </AppShell.Header>
+        <AppShell.Main>
+          <Outlet />
+        </AppShell.Main>
+      </AppShell>
     </>
   )
 }

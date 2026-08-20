@@ -1,13 +1,14 @@
-import { Button } from '@mantine/core'
+import { ActionIcon } from '@mantine/core'
 import { useNavigate } from '@tanstack/react-router'
 import { useLogoutMutation } from '#/features/auth/queries'
+import { SignOutIcon } from '@phosphor-icons/react'
 
 export function LogoutButton() {
   const navigate = useNavigate()
   const mutation = useLogoutMutation()
 
   return (
-    <Button
+    <ActionIcon
       variant="subtle"
       loading={mutation.isPending}
       onClick={() =>
@@ -21,7 +22,7 @@ export function LogoutButton() {
         })
       }
     >
-      Log out
-    </Button>
+      <SignOutIcon size={20} />
+    </ActionIcon>
   )
 }

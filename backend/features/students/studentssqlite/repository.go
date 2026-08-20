@@ -42,6 +42,33 @@ func (r Repository) GetAll(ctx context.Context) ([]students.Student, error) {
 	return result, nil
 }
 
+// GetDistinctSchools implements [students.Repository].
+func (r Repository) GetDistinctSchools(ctx context.Context) ([]string, error) {
+	got, err := r.R.GetDistinctSchools(ctx)
+	if err != nil {
+		return nil, sqlite.TranslateSQLError("students.GetDistinctSchools", err, nil, nil)
+	}
+	return toStrings(got), nil
+}
+
+// GetDistinctStudyPrograms implements [students.Repository].
+func (r Repository) GetDistinctStudyPrograms(ctx context.Context) ([]string, error) {
+	got, err := r.R.GetDistinctStudyPrograms(ctx)
+	if err != nil {
+		return nil, sqlite.TranslateSQLError("students.GetDistinctStudyPrograms", err, nil, nil)
+	}
+	return toStrings(got), nil
+}
+
+// GetDistinctClasses implements [students.Repository].
+func (r Repository) GetDistinctClasses(ctx context.Context) ([]string, error) {
+	got, err := r.R.GetDistinctClasses(ctx)
+	if err != nil {
+		return nil, sqlite.TranslateSQLError("students.GetDistinctClasses", err, nil, nil)
+	}
+	return toStrings(got), nil
+}
+
 // GetByID implements [students.Repository].
 func (r Repository) GetByID(ctx context.Context, id int) (students.Student, error) {
 	got, err := r.R.GetStudentById(ctx, int64(id))
@@ -87,6 +114,18 @@ func NewRepository(r *sqlite.DB) *Repository {
 }
 
 var _ students.Repository = Repository{}
+
+// toStrings drops any non-valid (SQL NULL) entries; the queries already
+// filter those out, so this only guards against an empty result set.
+func toStrings(values []sql.NullString) []string {
+	result := make([]string, 0, len(values))
+	for _, v := range values {
+		if v.Valid {
+			result = append(result, v.String)
+		}
+	}
+	return result
+}
 
 func toStudent(s gen.Student) students.Student {
 	var birthDate string

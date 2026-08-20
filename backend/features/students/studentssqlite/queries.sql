@@ -4,6 +4,15 @@ SELECT * FROM students WHERE id = ? LIMIT 1;
 -- name: GetAllStudents :many
 SELECT * FROM students;
 
+-- name: GetDistinctSchools :many
+SELECT DISTINCT school FROM students WHERE school IS NOT NULL AND school <> '' ORDER BY school;
+
+-- name: GetDistinctStudyPrograms :many
+SELECT DISTINCT study_program FROM students WHERE study_program IS NOT NULL AND study_program <> '' ORDER BY study_program;
+
+-- name: GetDistinctClasses :many
+SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND class <> '' ORDER BY class;
+
 -- name: DeleteStudent :execrows
 DELETE FROM students WHERE id = ?;
 
