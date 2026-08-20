@@ -31,6 +31,12 @@ type Repository interface {
 	GetByID(ctx context.Context, id int) (Student, error)
 	// GetAll returns all students, or an empty slice if none found.
 	GetAll(ctx context.Context) ([]Student, error)
+	// GetDistinctSchools returns the distinct, non-empty school values across all students, sorted alphabetically.
+	GetDistinctSchools(ctx context.Context) ([]string, error)
+	// GetDistinctStudyPrograms returns the distinct, non-empty study program values across all students, sorted alphabetically.
+	GetDistinctStudyPrograms(ctx context.Context) ([]string, error)
+	// GetDistinctClasses returns the distinct, non-empty class values across all students, sorted alphabetically.
+	GetDistinctClasses(ctx context.Context) ([]string, error)
 	// Save saves a student. Try to save a student with an existing ID will update the student,
 	// otherwise it will create a new student. CreatedAt and ModifiedAt will be set to the current time in UTC.
 	Save(ctx context.Context, student Student) (Student, error)

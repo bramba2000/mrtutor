@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,17 +25,23 @@ import (
 // fakeService lets each test control what the domain layer returns, without
 // a database in the loop.
 type fakeService struct {
-	createFn  func(context.Context, students.CreateIn) (students.Student, error)
-	getByIDFn func(context.Context, int) (students.Student, error)
-	getAllFn  func(context.Context) ([]students.Student, error)
-	updateFn  func(context.Context, students.UpdateIn) (students.Student, error)
-	deleteFn  func(context.Context, int) error
+	createFn                   func(context.Context, students.CreateIn) (students.Student, error)
+	getByIDFn                  func(context.Context, int) (students.Student, error)
+	getAllFn                   func(context.Context) ([]students.Student, error)
+	updateFn                   func(context.Context, students.UpdateIn) (students.Student, error)
+	deleteFn                   func(context.Context, int) error
+	getDistinctSchoolsFn       func(context.Context) ([]string, error)
+	getDistinctStudyProgramsFn func(context.Context) ([]string, error)
+	getDistinctClassesFn       func(context.Context) ([]string, error)
 
-	createCalled  bool
-	getByIDCalled bool
-	getAllCalled  bool
-	updateCalled  bool
-	deleteCalled  bool
+	createCalled                   bool
+	getByIDCalled                  bool
+	getAllCalled                   bool
+	updateCalled                   bool
+	deleteCalled                   bool
+	getDistinctSchoolsCalled       bool
+	getDistinctStudyProgramsCalled bool
+	getDistinctClassesCalled       bool
 
 	gotCreate  students.CreateIn
 	gotGetByID int
@@ -57,6 +64,21 @@ func (f *fakeService) GetByID(ctx context.Context, id int) (students.Student, er
 func (f *fakeService) GetAll(ctx context.Context) ([]students.Student, error) {
 	f.getAllCalled = true
 	return f.getAllFn(ctx)
+}
+
+func (f *fakeService) GetDistinctSchools(ctx context.Context) ([]string, error) {
+	f.getDistinctSchoolsCalled = true
+	return f.getDistinctSchoolsFn(ctx)
+}
+
+func (f *fakeService) GetDistinctStudyPrograms(ctx context.Context) ([]string, error) {
+	f.getDistinctStudyProgramsCalled = true
+	return f.getDistinctStudyProgramsFn(ctx)
+}
+
+func (f *fakeService) GetDistinctClasses(ctx context.Context) ([]string, error) {
+	f.getDistinctClassesCalled = true
+	return f.getDistinctClassesFn(ctx)
 }
 
 func (f *fakeService) Update(ctx context.Context, in students.UpdateIn) (students.Student, error) {
@@ -200,6 +222,81 @@ func TestGetAll(t *testing.T) {
 			t.Errorf("expected the error cause to be withheld, got body %q", w.Body.String())
 		}
 	})
+}
+
+func TestGetDistinctValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		setFn  func(f *fakeService, fn func(context.Context) ([]string, error))
+		called func(f *fakeService) bool
+	}{
+		{
+			name: "GET /students/schools",
+			path: "/students/schools",
+			setFn: func(f *fakeService, fn func(context.Context) ([]string, error)) {
+				f.getDistinctSchoolsFn = fn
+			},
+			called: func(f *fakeService) bool { return f.getDistinctSchoolsCalled },
+		},
+		{
+			name: "GET /students/study-programs",
+			path: "/students/study-programs",
+			setFn: func(f *fakeService, fn func(context.Context) ([]string, error)) {
+				f.getDistinctStudyProgramsFn = fn
+			},
+			called: func(f *fakeService) bool { return f.getDistinctStudyProgramsCalled },
+		},
+		{
+			name: "GET /students/classes",
+			path: "/students/classes",
+			setFn: func(f *fakeService, fn func(context.Context) ([]string, error)) {
+				f.getDistinctClassesFn = fn
+			},
+			called: func(f *fakeService) bool { return f.getDistinctClassesCalled },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("Success returns the distinct values as JSON", func(t *testing.T) {
+				svc := &fakeService{}
+				tt.setFn(svc, func(context.Context) ([]string, error) {
+					return []string{"A", "B"}, nil
+				})
+				h := mounted(t, svc)
+
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, tt.path, nil)))
+
+				if w.Code != http.StatusOK {
+					t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+				}
+				var got []string
+				if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if !slices.Equal(got, []string{"A", "B"}) {
+					t.Errorf("expected the service's values in the body, got %+v", got)
+				}
+			})
+
+			t.Run("Fail when unauthenticated", func(t *testing.T) {
+				svc := &fakeService{}
+				h := mounted(t, svc)
+
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+				if w.Code != http.StatusUnauthorized {
+					t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+				}
+				if tt.called(svc) {
+					t.Error("expected the service not to be called when unauthenticated")
+				}
+			})
+		})
+	}
 }
 
 func TestGetByID(t *testing.T) {

@@ -1,8 +1,22 @@
-import { Button, MaskInput, Modal, Stack, TextInput } from '@mantine/core'
+import {
+  Autocomplete,
+  Button,
+  MaskInput,
+  Modal,
+  Stack,
+  TextInput,
+} from '@mantine/core'
 import type { CreateStudentRequest, UpdateStudentRequest } from '../types'
 import { useForm } from '@tanstack/react-form'
+import { useQuery } from '@tanstack/react-query'
 import * as v from 'valibot'
-import { useCreateStudentMutation, useUpdateStudentMutation } from '../queries'
+import {
+  getStudentClassesQueryOptions,
+  getStudentSchoolsQueryOptions,
+  getStudentStudyProgramsQueryOptions,
+  useCreateStudentMutation,
+  useUpdateStudentMutation,
+} from '../queries'
 
 type StudentUpsertData = CreateStudentRequest | UpdateStudentRequest
 
@@ -50,6 +64,12 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
 
   const create = useCreateStudentMutation()
   const update = useUpdateStudentMutation()
+
+  const { data: schools = [] } = useQuery(getStudentSchoolsQueryOptions())
+  const { data: studyPrograms = [] } = useQuery(
+    getStudentStudyProgramsQueryOptions(),
+  )
+  const { data: classes = [] } = useQuery(getStudentClassesQueryOptions())
 
   const onSubmit = (values: StudentUpsertData) => {
     if ('id' in data && data.id) {
@@ -120,11 +140,12 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
           <Field
             name="school"
             children={(field) => (
-              <TextInput
+              <Autocomplete
                 label="School"
+                data={schools}
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.currentTarget.value)}
+                onChange={(value) => field.handleChange(value)}
                 error={field.state.meta.errors.join(', ')}
               />
             )}
@@ -132,11 +153,12 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
           <Field
             name="class"
             children={(field) => (
-              <TextInput
+              <Autocomplete
                 label="Class"
+                data={classes}
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.currentTarget.value)}
+                onChange={(value) => field.handleChange(value)}
                 error={field.state.meta.errors.join(', ')}
               />
             )}
@@ -144,11 +166,12 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
           <Field
             name="studyProgram"
             children={(field) => (
-              <TextInput
+              <Autocomplete
                 label="Study Program"
+                data={studyPrograms}
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.currentTarget.value)}
+                onChange={(value) => field.handleChange(value)}
                 error={field.state.meta.errors.join(', ')}
               />
             )}

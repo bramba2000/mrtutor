@@ -70,6 +70,21 @@ func (s Service) GetAll(ctx context.Context) ([]Student, error) {
 	return s.repo.GetAll(ctx)
 }
 
+// GetDistinctSchools retrieves the distinct, non-empty school values across all students.
+func (s Service) GetDistinctSchools(ctx context.Context) ([]string, error) {
+	return s.repo.GetDistinctSchools(ctx)
+}
+
+// GetDistinctStudyPrograms retrieves the distinct, non-empty study program values across all students.
+func (s Service) GetDistinctStudyPrograms(ctx context.Context) ([]string, error) {
+	return s.repo.GetDistinctStudyPrograms(ctx)
+}
+
+// GetDistinctClasses retrieves the distinct, non-empty class values across all students.
+func (s Service) GetDistinctClasses(ctx context.Context) ([]string, error) {
+	return s.repo.GetDistinctClasses(ctx)
+}
+
 type UpdateIn struct {
 	DisplayName  string `json:"displayName"`
 	Email        string `json:"email"`

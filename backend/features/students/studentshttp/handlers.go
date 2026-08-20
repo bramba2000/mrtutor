@@ -16,6 +16,9 @@ type Service interface {
 	Create(context.Context, students.CreateIn) (students.Student, error)
 	GetByID(context.Context, int) (students.Student, error)
 	GetAll(context.Context) ([]students.Student, error)
+	GetDistinctSchools(context.Context) ([]string, error)
+	GetDistinctStudyPrograms(context.Context) ([]string, error)
+	GetDistinctClasses(context.Context) ([]string, error)
 	Update(context.Context, students.UpdateIn) (students.Student, error)
 	Delete(context.Context, int) error
 }
@@ -53,6 +56,21 @@ func (h Handler) Mount(router *httpx.Router) {
 	group := router.Group("/students", authhttp.RequireSession(h.authenticator, h.logger))
 	group.Handle("GET /", httpx.WrapNoInput(
 		h.service.GetAll,
+		httpx.OK,
+		h.logger,
+	))
+	group.Handle("GET /schools", httpx.WrapNoInput(
+		h.service.GetDistinctSchools,
+		httpx.OK,
+		h.logger,
+	))
+	group.Handle("GET /study-programs", httpx.WrapNoInput(
+		h.service.GetDistinctStudyPrograms,
+		httpx.OK,
+		h.logger,
+	))
+	group.Handle("GET /classes", httpx.WrapNoInput(
+		h.service.GetDistinctClasses,
 		httpx.OK,
 		h.logger,
 	))

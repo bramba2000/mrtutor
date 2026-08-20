@@ -3,6 +3,7 @@ package studentssqlite_test
 import (
 	"errors"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,15 @@ func seedStudent(t *testing.T, repo students.Repository, displayName string) stu
 	}
 
 	saved, err := repo.Save(t.Context(), student)
+	if err != nil {
+		t.Fatalf("failed to seed student: %v", err)
+	}
+	return saved
+}
+
+func seedStudentWithSchool(t *testing.T, repo students.Repository, displayName, school string) students.Student {
+	t.Helper()
+	saved, err := repo.Save(t.Context(), students.Student{DisplayName: displayName, School: school})
 	if err != nil {
 		t.Fatalf("failed to seed student: %v", err)
 	}
@@ -227,6 +237,76 @@ func TestStudentRepository(t *testing.T) {
 			}
 			if len(got) != 0 {
 				t.Fatalf("expected 0 students, got %d", len(got))
+			}
+		})
+	})
+
+	t.Run("GetDistinctSchools", func(t *testing.T) {
+		t.Run("Returns sorted distinct non-empty values", func(t *testing.T) {
+			repo := newRepo(t)
+			seedStudentWithSchool(t, repo, "student 1", "B School")
+			seedStudentWithSchool(t, repo, "student 2", "A School")
+			seedStudentWithSchool(t, repo, "student 3", "B School")
+			seedStudentWithSchool(t, repo, "student 4", "")
+
+			got, err := repo.GetDistinctSchools(t.Context())
+			if err != nil {
+				t.Fatalf("failed to get distinct schools: %v", err)
+			}
+			want := []string{"A School", "B School"}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctSchools() = %v, want %v", got, want)
+			}
+		})
+
+		t.Run("Empty returns empty slice", func(t *testing.T) {
+			repo := newRepo(t)
+			got, err := repo.GetDistinctSchools(t.Context())
+			if err != nil {
+				t.Fatalf("failed to get distinct schools: %v", err)
+			}
+			if len(got) != 0 {
+				t.Fatalf("expected 0 schools, got %d", len(got))
+			}
+		})
+	})
+
+	t.Run("GetDistinctStudyPrograms", func(t *testing.T) {
+		t.Run("Returns sorted distinct non-empty values", func(t *testing.T) {
+			repo := newRepo(t)
+			seedStudent(t, repo, "student 1")
+			_, err := repo.Save(t.Context(), students.Student{DisplayName: "student 2", StudyProgram: "Program A"})
+			if err != nil {
+				t.Fatalf("failed to seed student: %v", err)
+			}
+
+			got, err := repo.GetDistinctStudyPrograms(t.Context())
+			if err != nil {
+				t.Fatalf("failed to get distinct study programs: %v", err)
+			}
+			want := []string{"Program A"}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctStudyPrograms() = %v, want %v", got, want)
+			}
+		})
+	})
+
+	t.Run("GetDistinctClasses", func(t *testing.T) {
+		t.Run("Returns sorted distinct non-empty values", func(t *testing.T) {
+			repo := newRepo(t)
+			seedStudent(t, repo, "student 1")
+			_, err := repo.Save(t.Context(), students.Student{DisplayName: "student 2", Class: "Class A"})
+			if err != nil {
+				t.Fatalf("failed to seed student: %v", err)
+			}
+
+			got, err := repo.GetDistinctClasses(t.Context())
+			if err != nil {
+				t.Fatalf("failed to get distinct classes: %v", err)
+			}
+			want := []string{"Class A"}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctClasses() = %v, want %v", got, want)
 			}
 		})
 	})

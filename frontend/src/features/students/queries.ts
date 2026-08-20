@@ -27,6 +27,30 @@ export function getStudentByIdQueryOptions(id: number) {
   })
 }
 
+export function getStudentSchoolsQueryOptions() {
+  return queryOptions({
+    queryKey: [...studentsKeys.all, 'schools'] as const,
+    queryFn: studentsApi.getStudentSchools,
+    retry: false,
+  })
+}
+
+export function getStudentStudyProgramsQueryOptions() {
+  return queryOptions({
+    queryKey: [...studentsKeys.all, 'studyPrograms'] as const,
+    queryFn: studentsApi.getStudentStudyPrograms,
+    retry: false,
+  })
+}
+
+export function getStudentClassesQueryOptions() {
+  return queryOptions({
+    queryKey: [...studentsKeys.all, 'classes'] as const,
+    queryFn: studentsApi.getStudentClasses,
+    retry: false,
+  })
+}
+
 export function useCreateStudentMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -47,7 +71,22 @@ export function useCreateStudentMutation() {
           return [data]
         },
       )
+      invalidateSuggestionQueries(queryClient)
     },
+  })
+}
+
+function invalidateSuggestionQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  queryClient.invalidateQueries({
+    queryKey: getStudentSchoolsQueryOptions().queryKey,
+  })
+  queryClient.invalidateQueries({
+    queryKey: getStudentStudyProgramsQueryOptions().queryKey,
+  })
+  queryClient.invalidateQueries({
+    queryKey: getStudentClassesQueryOptions().queryKey,
   })
 }
 
@@ -61,9 +100,8 @@ export function useDeleteStudentMutation() {
         queryKey: getStudentByIdQueryOptions(id).queryKey,
       })
       // remove the deleted student from the students list query
-      queryClient.setQueryData(
-        getStudentsQueryOptions().queryKey,
-        (oldData) => oldData?.filter((student) => student.id !== id),
+      queryClient.setQueryData(getStudentsQueryOptions().queryKey, (oldData) =>
+        oldData?.filter((student) => student.id !== id),
       )
     },
   })
@@ -89,6 +127,7 @@ export function useUpdateStudentMutation() {
           )
         },
       )
+      invalidateSuggestionQueries(queryClient)
     },
   })
 }

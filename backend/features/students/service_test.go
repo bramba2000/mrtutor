@@ -24,18 +24,24 @@ type fakeRepo struct {
 	db     map[int]students.Student
 	nextID int
 
-	SaveFn    func(context.Context, students.Student) (students.Student, error)
-	GetByIDFn func(context.Context, int) (students.Student, error)
-	GetAllFn  func(context.Context) ([]students.Student, error)
-	DeleteFn  func(context.Context, int) error
+	SaveFn                     func(context.Context, students.Student) (students.Student, error)
+	GetByIDFn                  func(context.Context, int) (students.Student, error)
+	GetAllFn                   func(context.Context) ([]students.Student, error)
+	DeleteFn                   func(context.Context, int) error
+	GetDistinctSchoolsFn       func(context.Context) ([]string, error)
+	GetDistinctStudyProgramsFn func(context.Context) ([]string, error)
+	GetDistinctClassesFn       func(context.Context) ([]string, error)
 
-	SaveCalled    bool
-	GetByIDCalled bool
-	GetAllCalled  bool
-	DeleteCalled  bool
-	GotSave       students.Student
-	GotGetByIDID  int
-	GotDeleteID   int
+	SaveCalled                     bool
+	GetByIDCalled                  bool
+	GetAllCalled                   bool
+	DeleteCalled                   bool
+	GetDistinctSchoolsCalled       bool
+	GetDistinctStudyProgramsCalled bool
+	GetDistinctClassesCalled       bool
+	GotSave                        students.Student
+	GotGetByIDID                   int
+	GotDeleteID                    int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -85,6 +91,33 @@ func (r *fakeRepo) GetAll(ctx context.Context) ([]students.Student, error) {
 		return r.GetAllFn(ctx)
 	}
 	return slices.Collect(maps.Values(r.db)), nil
+}
+
+// GetDistinctSchools implements [students.Repository].
+func (r *fakeRepo) GetDistinctSchools(ctx context.Context) ([]string, error) {
+	r.GetDistinctSchoolsCalled = true
+	if r.GetDistinctSchoolsFn != nil {
+		return r.GetDistinctSchoolsFn(ctx)
+	}
+	return nil, nil
+}
+
+// GetDistinctStudyPrograms implements [students.Repository].
+func (r *fakeRepo) GetDistinctStudyPrograms(ctx context.Context) ([]string, error) {
+	r.GetDistinctStudyProgramsCalled = true
+	if r.GetDistinctStudyProgramsFn != nil {
+		return r.GetDistinctStudyProgramsFn(ctx)
+	}
+	return nil, nil
+}
+
+// GetDistinctClasses implements [students.Repository].
+func (r *fakeRepo) GetDistinctClasses(ctx context.Context) ([]string, error) {
+	r.GetDistinctClassesCalled = true
+	if r.GetDistinctClassesFn != nil {
+		return r.GetDistinctClassesFn(ctx)
+	}
+	return nil, nil
 }
 
 // Delete implements [students.Repository].
@@ -309,6 +342,114 @@ func TestService(t *testing.T) {
 			_, err := svc.GetAll(t.Context())
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("GetAll() error = %v, want %v", err, wantErr)
+			}
+		})
+	})
+
+	t.Run("GetDistinctSchools", func(t *testing.T) {
+		t.Run("Passes through the returned slice", func(t *testing.T) {
+			repo := newFakeRepo()
+			want := []string{"A School", "B School"}
+			repo.GetDistinctSchoolsFn = func(context.Context) ([]string, error) {
+				return want, nil
+			}
+			svc := students.NewService(repo)
+
+			got, err := svc.GetDistinctSchools(t.Context())
+			if err != nil {
+				t.Fatalf("GetDistinctSchools() error = %v", err)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctSchools() = %v, want %v", got, want)
+			}
+			if !repo.GetDistinctSchoolsCalled {
+				t.Error("expected the repository to be called")
+			}
+		})
+
+		t.Run("Propagates repository errors", func(t *testing.T) {
+			repo := newFakeRepo()
+			wantErr := errors.New("boom")
+			repo.GetDistinctSchoolsFn = func(context.Context) ([]string, error) {
+				return nil, wantErr
+			}
+			svc := students.NewService(repo)
+
+			_, err := svc.GetDistinctSchools(t.Context())
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("GetDistinctSchools() error = %v, want %v", err, wantErr)
+			}
+		})
+	})
+
+	t.Run("GetDistinctStudyPrograms", func(t *testing.T) {
+		t.Run("Passes through the returned slice", func(t *testing.T) {
+			repo := newFakeRepo()
+			want := []string{"Program A", "Program B"}
+			repo.GetDistinctStudyProgramsFn = func(context.Context) ([]string, error) {
+				return want, nil
+			}
+			svc := students.NewService(repo)
+
+			got, err := svc.GetDistinctStudyPrograms(t.Context())
+			if err != nil {
+				t.Fatalf("GetDistinctStudyPrograms() error = %v", err)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctStudyPrograms() = %v, want %v", got, want)
+			}
+			if !repo.GetDistinctStudyProgramsCalled {
+				t.Error("expected the repository to be called")
+			}
+		})
+
+		t.Run("Propagates repository errors", func(t *testing.T) {
+			repo := newFakeRepo()
+			wantErr := errors.New("boom")
+			repo.GetDistinctStudyProgramsFn = func(context.Context) ([]string, error) {
+				return nil, wantErr
+			}
+			svc := students.NewService(repo)
+
+			_, err := svc.GetDistinctStudyPrograms(t.Context())
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("GetDistinctStudyPrograms() error = %v, want %v", err, wantErr)
+			}
+		})
+	})
+
+	t.Run("GetDistinctClasses", func(t *testing.T) {
+		t.Run("Passes through the returned slice", func(t *testing.T) {
+			repo := newFakeRepo()
+			want := []string{"Class A", "Class B"}
+			repo.GetDistinctClassesFn = func(context.Context) ([]string, error) {
+				return want, nil
+			}
+			svc := students.NewService(repo)
+
+			got, err := svc.GetDistinctClasses(t.Context())
+			if err != nil {
+				t.Fatalf("GetDistinctClasses() error = %v", err)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("GetDistinctClasses() = %v, want %v", got, want)
+			}
+			if !repo.GetDistinctClassesCalled {
+				t.Error("expected the repository to be called")
+			}
+		})
+
+		t.Run("Propagates repository errors", func(t *testing.T) {
+			repo := newFakeRepo()
+			wantErr := errors.New("boom")
+			repo.GetDistinctClassesFn = func(context.Context) ([]string, error) {
+				return nil, wantErr
+			}
+			svc := students.NewService(repo)
+
+			_, err := svc.GetDistinctClasses(t.Context())
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("GetDistinctClasses() error = %v, want %v", err, wantErr)
 			}
 		})
 	})

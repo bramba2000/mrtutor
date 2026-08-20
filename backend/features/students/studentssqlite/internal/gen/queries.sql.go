@@ -60,6 +60,87 @@ func (q *Queries) GetAllStudents(ctx context.Context) ([]Student, error) {
 	return items, nil
 }
 
+const getDistinctClasses = `-- name: GetDistinctClasses :many
+SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND class <> '' ORDER BY class
+`
+
+func (q *Queries) GetDistinctClasses(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, getDistinctClasses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullString
+	for rows.Next() {
+		var class sql.NullString
+		if err := rows.Scan(&class); err != nil {
+			return nil, err
+		}
+		items = append(items, class)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDistinctSchools = `-- name: GetDistinctSchools :many
+SELECT DISTINCT school FROM students WHERE school IS NOT NULL AND school <> '' ORDER BY school
+`
+
+func (q *Queries) GetDistinctSchools(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, getDistinctSchools)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullString
+	for rows.Next() {
+		var school sql.NullString
+		if err := rows.Scan(&school); err != nil {
+			return nil, err
+		}
+		items = append(items, school)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDistinctStudyPrograms = `-- name: GetDistinctStudyPrograms :many
+SELECT DISTINCT study_program FROM students WHERE study_program IS NOT NULL AND study_program <> '' ORDER BY study_program
+`
+
+func (q *Queries) GetDistinctStudyPrograms(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, getDistinctStudyPrograms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullString
+	for rows.Next() {
+		var study_program sql.NullString
+		if err := rows.Scan(&study_program); err != nil {
+			return nil, err
+		}
+		items = append(items, study_program)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getStudentById = `-- name: GetStudentById :one
 SELECT id, display_name, email, phone, school, study_program, class, birth_date, created_at, modified_at FROM students WHERE id = ? LIMIT 1
 `

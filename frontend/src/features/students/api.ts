@@ -24,3 +24,15 @@ export function updateStudent(student: UpdateStudentRequest): Promise<Student> {
 export function deleteStudent(id: number): Promise<void> {
   return apiFetch(`/students/${id}`, { method: 'DELETE' })
 }
+
+export function getStudentSchools(): Promise<string[]> {
+  return apiFetch('/students/schools')
+}
+
+export function getStudentStudyPrograms(): Promise<string[]> {
+  return apiFetch('/students/study-programs')
+}
+
+export function getStudentClasses(): Promise<string[]> {
+  return apiFetch('/students/classes')
+}
