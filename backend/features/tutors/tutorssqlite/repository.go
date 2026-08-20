@@ -49,20 +49,33 @@ func (r Repository) GetByID(ctx context.Context, id int) (tutors.Tutor, error) {
 	return toTutor(got), nil
 }
 
-// Save implements [tutors.Repository].
-func (r Repository) Save(ctx context.Context, tutor tutors.Tutor) (tutors.Tutor, error) {
-	model, err := r.W.SaveTutor(ctx, gen.SaveTutorParams{
-		ID:          int64(tutor.ID),
-		DisplayName: tutor.DisplayName,
-		Email:       sql.NullString{Valid: tutor.Email != "", String: tutor.Email},
-		Phone:       sql.NullString{Valid: tutor.Phone != "", String: tutor.Phone},
-		AboutMe:     sql.NullString{Valid: tutor.AboutMe != "", String: tutor.AboutMe},
+// Create implements [tutors.Repository].
+func (r Repository) Create(ctx context.Context, t tutors.TutorFields) (tutors.Tutor, error) {
+	got, err := r.W.CreateTutor(ctx, gen.CreateTutorParams{
+		DisplayName: t.DisplayName,
+		Email:       sql.NullString{String: t.Email, Valid: t.Email != ""},
+		Phone:       sql.NullString{String: t.Phone, Valid: t.Phone != ""},
+		AboutMe:     sql.NullString{String: t.AboutMe, Valid: t.AboutMe != ""},
 	})
-
 	if err != nil {
-		return tutors.Tutor{}, sqlite.TranslateSQLError("tutors.Save", err, nil, nil)
+		return tutors.Tutor{}, sqlite.TranslateSQLError("tutors.Create", err, nil, nil)
 	}
-	return toTutor(model), nil
+	return toTutor(got), nil
+}
+
+// Update implements [tutors.Repository].
+func (r Repository) Update(ctx context.Context, id int, t tutors.TutorFields) (tutors.Tutor, error) {
+	got, err := r.W.UpdateTutor(ctx, gen.UpdateTutorParams{
+		ID:          int64(id),
+		DisplayName: t.DisplayName,
+		Email:       sql.NullString{String: t.Email, Valid: t.Email != ""},
+		Phone:       sql.NullString{String: t.Phone, Valid: t.Phone != ""},
+		AboutMe:     sql.NullString{String: t.AboutMe, Valid: t.AboutMe != ""},
+	})
+	if err != nil {
+		return tutors.Tutor{}, sqlite.TranslateSQLError("tutors.Update", err, tutors.ErrNotFound, nil)
+	}
+	return toTutor(got), nil
 }
 
 func NewRepository(r *sqlite.DB) *Repository {

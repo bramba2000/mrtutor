@@ -21,7 +21,7 @@ func newRepo(t *testing.T) *tutorssqlite.Repository {
 
 func seedTutor(t *testing.T, repo tutors.Repository, displayName string) tutors.Tutor {
 	t.Helper()
-	saved, err := repo.Save(t.Context(), tutors.Tutor{DisplayName: displayName})
+	saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: displayName})
 	if err != nil {
 		t.Fatalf("failed to seed tutor: %v", err)
 	}
@@ -32,13 +32,13 @@ func TestTutorRepository(t *testing.T) {
 	t.Run("Save", func(t *testing.T) {
 		t.Run("Successful create", func(t *testing.T) {
 			repo := newRepo(t)
-			tutor := tutors.Tutor{
+			tutor := tutors.TutorFields{
 				DisplayName: "test",
 				Email:       "test@example.com",
 				Phone:       "+393334455666",
 				AboutMe:     "I teach math and physics.",
 			}
-			created, err := repo.Save(t.Context(), tutor)
+			created, err := repo.Create(t.Context(), tutor)
 			if err != nil {
 				t.Fatalf("failed to create tutor: %v", err)
 			}
@@ -63,8 +63,7 @@ func TestTutorRepository(t *testing.T) {
 			repo := newRepo(t)
 			created := seedTutor(t, repo, "update me")
 
-			updated, err := repo.Save(t.Context(), tutors.Tutor{
-				ID:          created.ID,
+			updated, err := repo.Update(t.Context(), created.ID, tutors.TutorFields{
 				DisplayName: "updated name",
 			})
 			if err != nil {
@@ -87,30 +86,19 @@ func TestTutorRepository(t *testing.T) {
 			}
 		})
 
-		t.Run("Save with unknown id creates a row with that id", func(t *testing.T) {
+		t.Run("Update with unknown id return not found error", func(t *testing.T) {
 			repo := newRepo(t)
-			saved, err := repo.Save(t.Context(), tutors.Tutor{
-				ID:          12345,
+			_, err := repo.Update(t.Context(), 12345, tutors.TutorFields{
 				DisplayName: "upserted",
 			})
-			if err != nil {
-				t.Fatalf("failed to save tutor: %v", err)
-			}
-			if saved.ID != 12345 {
-				t.Errorf("expected id 12345, got %d", saved.ID)
-			}
-			got, err := repo.GetByID(t.Context(), 12345)
-			if err != nil {
-				t.Fatalf("failed to get created tutor: %v", err)
-			}
-			if got.DisplayName != "upserted" {
-				t.Errorf("expected DisplayName 'upserted', got %q", got.DisplayName)
+			if err == nil {
+				t.Fatalf("expected error when updating unknown id, got nil")
 			}
 		})
 
 		t.Run("Empty optional fields round-trip as empty strings", func(t *testing.T) {
 			repo := newRepo(t)
-			saved, err := repo.Save(t.Context(), tutors.Tutor{DisplayName: "only name"})
+			saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: "only name"})
 			if err != nil {
 				t.Fatalf("failed to save tutor: %v", err)
 			}

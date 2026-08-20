@@ -68,7 +68,9 @@ func TestTutors(t *testing.T) {
 	})
 
 	t.Run("Cannot update a tutor when unauthenticated", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPut, "/tutors/1", tutors.UpdateIn{DisplayName: "John"})
+		req := newJSONRequest(t, http.MethodPut, "/tutors/1", tutors.UpdateIn{
+			TutorFields: tutors.TutorFields{DisplayName: "John"},
+		})
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -167,10 +169,12 @@ func TestTutors(t *testing.T) {
 
 		t.Run("Update", func(t *testing.T) {
 			req := newJSONRequest(t, http.MethodPut, "/tutors/"+strconv.Itoa(id), tutors.UpdateIn{
-				DisplayName: "John Updated",
-				Email:       "john.updated@example.com",
-				Phone:       "+393334455667",
-				AboutMe:     "I teach math, physics, and chemistry.",
+				TutorFields: tutors.TutorFields{
+					DisplayName: "John Updated",
+					Email:       "john.updated@example.com",
+					Phone:       "+393334455667",
+					AboutMe:     "I teach math, physics, and chemistry.",
+				},
 			})
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
@@ -196,7 +200,9 @@ func TestTutors(t *testing.T) {
 
 		t.Run("Update with an invalid body fails validation", func(t *testing.T) {
 			req := newJSONRequest(t, http.MethodPut, "/tutors/"+strconv.Itoa(id), tutors.UpdateIn{
-				DisplayName: "",
+				TutorFields: tutors.TutorFields{
+					DisplayName: "",
+				},
 			})
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()

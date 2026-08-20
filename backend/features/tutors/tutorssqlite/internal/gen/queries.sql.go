@@ -10,6 +10,39 @@ import (
 	"database/sql"
 )
 
+const createTutor = `-- name: CreateTutor :one
+INSERT INTO tutors (display_name, email, phone, about_me, created_at)
+    VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
+    RETURNING id, display_name, email, phone, about_me, created_at, modified_at
+`
+
+type CreateTutorParams struct {
+	DisplayName string
+	Email       sql.NullString
+	Phone       sql.NullString
+	AboutMe     sql.NullString
+}
+
+func (q *Queries) CreateTutor(ctx context.Context, arg CreateTutorParams) (Tutor, error) {
+	row := q.db.QueryRowContext(ctx, createTutor,
+		arg.DisplayName,
+		arg.Email,
+		arg.Phone,
+		arg.AboutMe,
+	)
+	var i Tutor
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.Email,
+		&i.Phone,
+		&i.AboutMe,
+		&i.CreatedAt,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
 const deleteTutor = `-- name: DeleteTutor :execrows
 DELETE FROM tutors WHERE id = ?
 `
@@ -105,6 +138,46 @@ func (q *Queries) SaveTutor(ctx context.Context, arg SaveTutorParams) (Tutor, er
 		arg.Email,
 		arg.Phone,
 		arg.AboutMe,
+	)
+	var i Tutor
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.Email,
+		&i.Phone,
+		&i.AboutMe,
+		&i.CreatedAt,
+		&i.ModifiedAt,
+	)
+	return i, err
+}
+
+const updateTutor = `-- name: UpdateTutor :one
+UPDATE tutors
+SET display_name = ?1,
+    email = ?2,
+    phone = ?3,
+    about_me = ?4,
+    modified_at = CURRENT_TIMESTAMP
+WHERE id = ?5
+RETURNING id, display_name, email, phone, about_me, created_at, modified_at
+`
+
+type UpdateTutorParams struct {
+	DisplayName string
+	Email       sql.NullString
+	Phone       sql.NullString
+	AboutMe     sql.NullString
+	ID          int64
+}
+
+func (q *Queries) UpdateTutor(ctx context.Context, arg UpdateTutorParams) (Tutor, error) {
+	row := q.db.QueryRowContext(ctx, updateTutor,
+		arg.DisplayName,
+		arg.Email,
+		arg.Phone,
+		arg.AboutMe,
+		arg.ID,
 	)
 	var i Tutor
 	err := row.Scan(

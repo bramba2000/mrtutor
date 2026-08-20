@@ -7,6 +7,21 @@ SELECT * FROM tutors;
 -- name: DeleteTutor :execrows
 DELETE FROM tutors WHERE id = ?;
 
+-- name: CreateTutor :one
+INSERT INTO tutors (display_name, email, phone, about_me, created_at)
+    VALUES (:display_name, :email, :phone, :about_me, CURRENT_TIMESTAMP)
+    RETURNING *;
+
+-- name: UpdateTutor :one
+UPDATE tutors
+SET display_name = :display_name,
+    email = :email,
+    phone = :phone,
+    about_me = :about_me,
+    modified_at = CURRENT_TIMESTAMP
+WHERE id = :id
+RETURNING *;
+
 -- name: SaveTutor :one
 -- This query will try to insert a new tutor record. If a record with the same id
 -- already exists, it will update the existing record instead.

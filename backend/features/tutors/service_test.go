@@ -24,18 +24,22 @@ type fakeRepo struct {
 	db     map[int]tutors.Tutor
 	nextID int
 
-	SaveFn    func(context.Context, tutors.Tutor) (tutors.Tutor, error)
+	CreateFn  func(context.Context, tutors.TutorFields) (tutors.Tutor, error)
+	UpdateFn  func(context.Context, int, tutors.TutorFields) (tutors.Tutor, error)
 	GetByIDFn func(context.Context, int) (tutors.Tutor, error)
 	GetAllFn  func(context.Context) ([]tutors.Tutor, error)
 	DeleteFn  func(context.Context, int) error
 
-	SaveCalled    bool
-	GetByIDCalled bool
-	GetAllCalled  bool
-	DeleteCalled  bool
-	GotSave       tutors.Tutor
-	GotGetByIDID  int
-	GotDeleteID   int
+	CreateCalled   bool
+	UpdateCalled   bool
+	GetByIDCalled  bool
+	GetAllCalled   bool
+	DeleteCalled   bool
+	GotCreate      tutors.TutorFields
+	GotUpdateID    int
+	GotUpdateTutor tutors.TutorFields
+	GotGetByIDID   int
+	GotDeleteID    int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -43,26 +47,46 @@ func newFakeRepo() *fakeRepo {
 }
 
 // Save implements [tutors.Repository].
-func (r *fakeRepo) Save(ctx context.Context, tutor tutors.Tutor) (tutors.Tutor, error) {
-	r.SaveCalled = true
-	r.GotSave = tutor
-	if r.SaveFn != nil {
-		return r.SaveFn(ctx, tutor)
+func (r *fakeRepo) Create(ctx context.Context, tutor tutors.TutorFields) (tutors.Tutor, error) {
+	r.CreateCalled = true
+	r.GotCreate = tutor
+	if r.CreateFn != nil {
+		return r.CreateFn(ctx, tutor)
 	}
 
-	if existing, ok := r.db[tutor.ID]; ok {
-		tutor.CreatedAt = existing.CreatedAt
-		tutor.ModifiedAt = time.Now().UTC()
-	} else {
-		if tutor.ID == 0 {
-			r.nextID++
-			tutor.ID = r.nextID
-		}
-		tutor.CreatedAt = time.Now().UTC()
-		tutor.ModifiedAt = time.Time{}
+	r.nextID++
+	r.db[r.nextID] = tutors.Tutor{
+		ID:          r.nextID,
+		DisplayName: tutor.DisplayName,
+		Email:       tutor.Email,
+		Phone:       tutor.Phone,
+		AboutMe:     tutor.AboutMe,
+		CreatedAt:   time.Now().UTC(),
 	}
-	r.db[tutor.ID] = tutor
-	return tutor, nil
+	return r.db[r.nextID], nil
+}
+
+// Update implements [tutors.Repository].
+func (r *fakeRepo) Update(ctx context.Context, id int, tutor tutors.TutorFields) (tutors.Tutor, error) {
+	r.UpdateCalled = true
+	r.GotUpdateID = id
+	r.GotUpdateTutor = tutor
+	if r.UpdateFn != nil {
+		return r.UpdateFn(ctx, id, tutor)
+	}
+
+	if existing, ok := r.db[id]; ok {
+		existing.DisplayName = tutor.DisplayName
+		existing.Email = tutor.Email
+		existing.Phone = tutor.Phone
+		existing.AboutMe = tutor.AboutMe
+		existing.ModifiedAt = time.Now().UTC()
+		r.db[id] = existing
+		return existing, nil
+	} else {
+		return tutors.Tutor{}, tutors.ErrNotFound
+	}
+
 }
 
 // GetByID implements [tutors.Repository].
@@ -127,26 +151,10 @@ func TestService(t *testing.T) {
 			}
 		})
 
-		t.Run("Passes a zero id to the repository", func(t *testing.T) {
-			repo := newFakeRepo()
-			svc := tutors.NewService(repo)
-
-			_, err := svc.Create(t.Context(), tutors.CreateIn{DisplayName: "Jane Doe"})
-			if err != nil {
-				t.Fatalf("Create() error = %v", err)
-			}
-			if !repo.SaveCalled {
-				t.Fatalf("expected Save to be called")
-			}
-			if repo.GotSave.ID != 0 {
-				t.Errorf("expected Create to pass id=0 to Save, got %d", repo.GotSave.ID)
-			}
-		})
-
 		t.Run("Propagates repository errors", func(t *testing.T) {
 			repo := newFakeRepo()
 			wantErr := errors.New("boom")
-			repo.SaveFn = func(context.Context, tutors.Tutor) (tutors.Tutor, error) {
+			repo.CreateFn = func(context.Context, tutors.TutorFields) (tutors.Tutor, error) {
 				return tutors.Tutor{}, wantErr
 			}
 			svc := tutors.NewService(repo)
@@ -331,11 +339,13 @@ func TestService(t *testing.T) {
 			repo.db[created.ID] = created
 
 			updateIn := tutors.UpdateIn{
-				ID:          created.ID,
-				DisplayName: "John",
-				Email:       created.Email,
-				Phone:       created.Phone,
-				AboutMe:     created.AboutMe,
+				ID: created.ID,
+				TutorFields: tutors.TutorFields{
+					DisplayName: "John",
+					Email:       created.Email,
+					Phone:       created.Phone,
+					AboutMe:     created.AboutMe,
+				},
 			}
 
 			svc := tutors.NewService(repo)
@@ -353,36 +363,42 @@ func TestService(t *testing.T) {
 			if updated.DisplayName != "John" {
 				t.Errorf("Update() DisplayName = %v, want 'John'", updated.DisplayName)
 			}
-			if repo.GotSave.ID != created.ID {
-				t.Errorf("expected Save to receive id %d, got %d", created.ID, repo.GotSave.ID)
+			if repo.GotUpdateID != created.ID {
+				t.Errorf("expected Save to receive id %d, got %d", created.ID, repo.GotUpdateID)
 			}
 		})
 
-		t.Run("Creates a row when the id is unknown", func(t *testing.T) {
+		t.Run("Fail to update row when the id is unknown", func(t *testing.T) {
 			repo := newFakeRepo()
 			svc := tutors.NewService(repo)
 
-			updated, err := svc.Update(t.Context(), tutors.UpdateIn{ID: 42, DisplayName: "New"})
-			if err != nil {
-				t.Fatalf("Update() error = %v", err)
+			_, err := svc.Update(t.Context(), tutors.UpdateIn{
+				ID:          42,
+				TutorFields: tutors.TutorFields{DisplayName: "New"},
+			})
+			if err == nil {
+				t.Fatal("Update() expect error, got nil")
 			}
-			if updated.ID != 42 {
-				t.Errorf("Update() ID = %v, want 42", updated.ID)
-			}
-			if updated.CreatedAt.IsZero() {
-				t.Errorf("Update() CreatedAt = %v, want non-zero for a newly created row", updated.CreatedAt)
+			if slices.ContainsFunc(slices.Collect(maps.Values(repo.db)), func(t tutors.Tutor) bool {
+				return t.DisplayName == "New" || t.ID == 42
+			}) {
+				t.Errorf("Update() created a new row in the repository, want no new rows")
 			}
 		})
 
 		t.Run("Propagates repository errors", func(t *testing.T) {
 			repo := newFakeRepo()
 			wantErr := errors.New("boom")
-			repo.SaveFn = func(context.Context, tutors.Tutor) (tutors.Tutor, error) {
+			repo.UpdateFn = func(_ context.Context, id int, in tutors.TutorFields) (tutors.Tutor, error) {
 				return tutors.Tutor{}, wantErr
 			}
 			svc := tutors.NewService(repo)
 
-			_, err := svc.Update(t.Context(), tutors.UpdateIn{ID: 1, DisplayName: "John"})
+			_, err := svc.Update(t.Context(), tutors.UpdateIn{
+				ID: 1,
+				TutorFields: tutors.TutorFields{
+					DisplayName: "John",
+				}})
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("Update() error = %v, want %v", err, wantErr)
 			}
@@ -390,7 +406,10 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("UpdateIn.Validate", func(t *testing.T) {
-		base := tutors.UpdateIn{ID: 1, DisplayName: "John Doe"}
+		base := tutors.UpdateIn{
+			ID:          1,
+			TutorFields: tutors.TutorFields{DisplayName: "John Doe"},
+		}
 
 		t.Run("Succeeds with valid input", func(t *testing.T) {
 			// Regression test: validateTutorData returns a nil error when

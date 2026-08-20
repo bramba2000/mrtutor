@@ -16,14 +16,7 @@ func NewService(repo Repository) Service {
 	}
 }
 
-type TutorData struct {
-	DisplayName string `json:"displayName"`
-	Email       string `json:"email"`
-	Phone       string `json:"phone"`
-	AboutMe     string `json:"aboutMe"`
-}
-
-func validateTutorData(tutor TutorData) validation.Errors {
+func validateTutorData(tutor TutorFields) validation.Errors {
 	return validation.Errors{
 		"displayName": validation.Validate(tutor.DisplayName, validation.NotBlank, validation.MaxLength[string](256)),
 		"email":       validation.Optional(tutor.Email, validation.NotBlank, validation.MaxLength[string](256), validation.Email),
@@ -32,23 +25,15 @@ func validateTutorData(tutor TutorData) validation.Errors {
 	}
 }
 
-type CreateIn TutorData
+type CreateIn TutorFields
 
 func (in CreateIn) Validate() error {
-	return validateTutorData(TutorData(in)).Err()
+	return validateTutorData(TutorFields(in)).Err()
 }
 
 // Create creates a new tutor and returns the created tutor with its ID.
 func (s Service) Create(ctx context.Context, in CreateIn) (Tutor, error) {
-	tutor := Tutor{
-		DisplayName: in.DisplayName,
-		Email:       in.Email,
-		Phone:       in.Phone,
-		AboutMe:     in.AboutMe,
-		ID:          0,
-	}
-
-	return s.repo.Save(ctx, tutor)
+	return s.repo.Create(ctx, TutorFields(in))
 }
 
 // GetByID retrieves a tutor by its ID.
@@ -62,37 +47,21 @@ func (s Service) GetAll(ctx context.Context) ([]Tutor, error) {
 }
 
 type UpdateIn struct {
-	DisplayName string `json:"displayName"`
-	Email       string `json:"email"`
-	Phone       string `json:"phone"`
-	AboutMe     string `json:"aboutMe"`
-	ID          int    `json:"-"`
+	TutorFields `json:",inline"`
+	ID          int `json:"-"`
 }
 
 func (in UpdateIn) Validate() error {
 	err := validation.Errors{
 		"id": validation.Validate(in.ID, validation.Min(1)),
 	}
-	tutorData := TutorData{
-		DisplayName: in.DisplayName,
-		Email:       in.Email,
-		Phone:       in.Phone,
-		AboutMe:     in.AboutMe,
-	}
-	err.Merge(validateTutorData(tutorData))
+	err.Merge(validateTutorData(in.TutorFields))
 	return err.Err()
 }
 
 // Update updates an existing tutor and returns the updated tutor.
 func (s Service) Update(ctx context.Context, in UpdateIn) (Tutor, error) {
-	tutor := Tutor{
-		DisplayName: in.DisplayName,
-		Email:       in.Email,
-		Phone:       in.Phone,
-		AboutMe:     in.AboutMe,
-		ID:          in.ID,
-	}
-	return s.repo.Save(ctx, tutor)
+	return s.repo.Update(ctx, in.ID, in.TutorFields)
 }
 
 // Delete removes a tutor by its ID.

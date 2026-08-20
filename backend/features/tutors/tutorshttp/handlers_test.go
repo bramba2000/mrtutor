@@ -382,7 +382,7 @@ func TestUpdate(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/7", tutors.UpdateIn{
-			ID: 999, DisplayName: "John",
+			ID: 999, TutorFields: tutors.TutorFields{DisplayName: "John"},
 		})))
 
 		if w.Code != http.StatusOK {
@@ -399,7 +399,7 @@ func TestUpdate(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/7", tutors.UpdateIn{
-			DisplayName: "",
+			TutorFields: tutors.TutorFields{DisplayName: ""},
 		})))
 
 		if w.Code != http.StatusBadRequest {
@@ -419,7 +419,7 @@ func TestUpdate(t *testing.T) {
 		h := mounted(t, svc)
 
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/abc", tutors.UpdateIn{DisplayName: "John"})))
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/abc", tutors.UpdateIn{TutorFields: tutors.TutorFields{DisplayName: "John"}})))
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())
@@ -438,7 +438,7 @@ func TestUpdate(t *testing.T) {
 		h := mounted(t, svc)
 
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/999", tutors.UpdateIn{DisplayName: "John"})))
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/tutors/999", tutors.UpdateIn{TutorFields: tutors.TutorFields{DisplayName: "John"}})))
 
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusNotFound, w.Code, w.Body.String())
@@ -450,7 +450,7 @@ func TestUpdate(t *testing.T) {
 		h := mounted(t, svc)
 
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, newJSONRequest(http.MethodPut, "/tutors/7", tutors.UpdateIn{DisplayName: "John"}))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPut, "/tutors/7", tutors.UpdateIn{TutorFields: tutors.TutorFields{DisplayName: "John"}}))
 
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
