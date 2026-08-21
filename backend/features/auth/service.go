@@ -128,8 +128,12 @@ type RegisterOut struct {
 	SessionToken string
 }
 
+func GeneratePasswordHash(password string) ([]byte, error) {
+	return bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+}
+
 func (svc Service) Register(ctx context.Context, in RegisterIn) (RegisterOut, error) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
+	passwordHash, err := GeneratePasswordHash(in.Password)
 	if err != nil {
 		return RegisterOut{}, err
 	}

@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/bramba2000/mrtutor/backend/features/auth"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func seedPrincipal(t testing.TB, store auth.PrincipalStore, username, email, password string) auth.Principal {
 	t.Helper()
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := auth.GeneratePasswordHash(password)
 	if err != nil {
 		t.Fatalf("failed to hash password: %v", err)
 	}
