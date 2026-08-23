@@ -24,22 +24,26 @@ type fakeRepo struct {
 	db     map[int]tutors.Tutor
 	nextID int
 
-	CreateFn  func(context.Context, tutors.TutorFields) (tutors.Tutor, error)
-	UpdateFn  func(context.Context, int, tutors.TutorFields) (tutors.Tutor, error)
-	GetByIDFn func(context.Context, int) (tutors.Tutor, error)
-	GetAllFn  func(context.Context) ([]tutors.Tutor, error)
-	DeleteFn  func(context.Context, int) error
+	CreateFn      func(context.Context, tutors.TutorFields) (tutors.Tutor, error)
+	UpdateFn      func(context.Context, int, tutors.TutorFields) (tutors.Tutor, error)
+	GetByIDFn     func(context.Context, int) (tutors.Tutor, error)
+	GetAllFn      func(context.Context) ([]tutors.Tutor, error)
+	DeleteFn      func(context.Context, int) error
+	GetByUserIDFn func(context.Context, int) (tutors.Tutor, error)
 
-	CreateCalled   bool
-	UpdateCalled   bool
-	GetByIDCalled  bool
-	GetAllCalled   bool
-	DeleteCalled   bool
-	GotCreate      tutors.TutorFields
-	GotUpdateID    int
-	GotUpdateTutor tutors.TutorFields
-	GotGetByIDID   int
-	GotDeleteID    int
+	CreateCalled      bool
+	UpdateCalled      bool
+	GetByIDCalled     bool
+	GetAllCalled      bool
+	DeleteCalled      bool
+	GetByUserIDCalled bool
+	GotCreate         tutors.TutorFields
+	GotCreateUserID   int
+	GotUpdateID       int
+	GotUpdateTutor    tutors.TutorFields
+	GotGetByIDID      int
+	GotDeleteID       int
+	GotGetByUserID    int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -47,9 +51,10 @@ func newFakeRepo() *fakeRepo {
 }
 
 // Save implements [tutors.Repository].
-func (r *fakeRepo) Create(ctx context.Context, tutor tutors.TutorFields) (tutors.Tutor, error) {
+func (r *fakeRepo) Create(ctx context.Context, tutor tutors.TutorFields, userId int) (tutors.Tutor, error) {
 	r.CreateCalled = true
 	r.GotCreate = tutor
+	r.GotCreateUserID = userId
 	if r.CreateFn != nil {
 		return r.CreateFn(ctx, tutor)
 	}
@@ -61,6 +66,7 @@ func (r *fakeRepo) Create(ctx context.Context, tutor tutors.TutorFields) (tutors
 		Email:       tutor.Email,
 		Phone:       tutor.Phone,
 		AboutMe:     tutor.AboutMe,
+		UserID:      userId,
 		CreatedAt:   time.Now().UTC(),
 	}
 	return r.db[r.nextID], nil
@@ -125,6 +131,21 @@ func (r *fakeRepo) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
+// GetByUserID implements [tutors.Repository].
+func (r *fakeRepo) GetByUserID(ctx context.Context, userId int) (tutors.Tutor, error) {
+	r.GetByUserIDCalled = true
+	r.GotGetByUserID = userId
+	if r.GetByUserIDFn != nil {
+		return r.GetByUserIDFn(ctx, userId)
+	}
+	for _, tutor := range r.db {
+		if tutor.UserID == userId {
+			return tutor, nil
+		}
+	}
+	return tutors.Tutor{}, tutors.ErrNotFound
+}
+
 var _ tutors.Repository = (*fakeRepo)(nil)
 
 func TestService(t *testing.T) {
@@ -133,7 +154,7 @@ func TestService(t *testing.T) {
 			repo := newFakeRepo()
 			svc := tutors.NewService(repo)
 
-			created, err := svc.Create(t.Context(), tutors.CreateIn{DisplayName: "John Doe"})
+			created, err := svc.Create(t.Context(), tutors.CreateIn{TutorFields: tutors.TutorFields{DisplayName: "John Doe"}, UserId: 1})
 			if err != nil {
 				t.Fatalf("Create() error = %v", err)
 			}
@@ -159,7 +180,7 @@ func TestService(t *testing.T) {
 			}
 			svc := tutors.NewService(repo)
 
-			_, err := svc.Create(t.Context(), tutors.CreateIn{DisplayName: "John Doe"})
+			_, err := svc.Create(t.Context(), tutors.CreateIn{TutorFields: tutors.TutorFields{DisplayName: "John Doe"}, UserId: 1})
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("Create() error = %v, want %v", err, wantErr)
 			}
@@ -167,7 +188,7 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("CreateIn.Validate", func(t *testing.T) {
-		base := tutors.CreateIn{DisplayName: "John Doe"}
+		base := tutors.CreateIn{TutorFields: tutors.TutorFields{DisplayName: "John Doe"}, UserId: 1}
 
 		tests := []struct {
 			name    string
@@ -227,6 +248,13 @@ func TestService(t *testing.T) {
 				name: "Fails with an about me over 2000 characters",
 				in: func(in *tutors.CreateIn) {
 					in.AboutMe = strings.Repeat("a", 2001)
+				},
+				wantErr: true,
+			},
+			{
+				name: "Fails with a user id less than 1",
+				in: func(in *tutors.CreateIn) {
+					in.UserId = 0
 				},
 				wantErr: true,
 			},

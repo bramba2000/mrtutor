@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/bramba2000/mrtutor/backend/errs"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/httpx"
@@ -18,6 +19,7 @@ type Service interface {
 	GetAll(context.Context) ([]tutors.Tutor, error)
 	Update(context.Context, tutors.UpdateIn) (tutors.Tutor, error)
 	Delete(context.Context, int) error
+	GetByUserID(context.Context, int) (tutors.Tutor, error)
 }
 
 var _ Service = tutors.Service{}
@@ -56,6 +58,17 @@ func (h Handler) Mount(router *httpx.Router) {
 		httpx.OK,
 		h.logger,
 	))
+	group.Handle("GET /me", httpx.WrapNoInput(
+		func(ctx context.Context) (tutors.Tutor, error) {
+			principal, ok := auth.FromContext(ctx)
+			if !ok {
+				return tutors.Tutor{}, auth.ErrUnauthenticated
+			}
+			return h.service.GetByUserID(ctx, principal.ID)
+		},
+		httpx.OK,
+		h.logger,
+	))
 	group.Handle("GET /{id}", httpx.WrapUnvalidated(
 		decodeTutorID,
 		h.service.GetByID,
@@ -63,7 +76,18 @@ func (h Handler) Mount(router *httpx.Router) {
 		h.logger,
 	))
 	group.Handle("POST /", httpx.Wrap(
-		httpx.BodyDecoder,
+		func(r *http.Request) (tutors.CreateIn, error) {
+			in, err := httpx.BodyDecoder[tutors.CreateIn](r)
+			if err != nil {
+				return tutors.CreateIn{}, err
+			}
+			principal, ok := auth.FromContext(r.Context())
+			if !ok {
+				return tutors.CreateIn{}, auth.ErrUnauthenticated
+			}
+			in.UserId = principal.ID
+			return in, nil
+		},
 		h.service.Create,
 		httpx.Created,
 		h.logger,

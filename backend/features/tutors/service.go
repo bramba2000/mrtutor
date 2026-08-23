@@ -25,15 +25,22 @@ func validateTutorData(tutor TutorFields) validation.Errors {
 	}
 }
 
-type CreateIn TutorFields
+type CreateIn struct {
+	TutorFields `json:",inline"`
+	UserId      int `json:"userId"`
+}
 
 func (in CreateIn) Validate() error {
-	return validateTutorData(TutorFields(in)).Err()
+	err := validation.Errors{
+		"userId": validation.Validate(in.UserId, validation.Min(1)),
+	}
+	err.Merge(validateTutorData(in.TutorFields))
+	return err.Err()
 }
 
 // Create creates a new tutor and returns the created tutor with its ID.
 func (s Service) Create(ctx context.Context, in CreateIn) (Tutor, error) {
-	return s.repo.Create(ctx, TutorFields(in))
+	return s.repo.Create(ctx, in.TutorFields, in.UserId)
 }
 
 // GetByID retrieves a tutor by its ID.
@@ -66,10 +73,10 @@ func (s Service) Update(ctx context.Context, in UpdateIn) (Tutor, error) {
 
 // Delete removes a tutor by its ID.
 func (s Service) Delete(ctx context.Context, id int) error {
-	err := s.repo.Delete(ctx, id)
-	if err != nil {
-		return err
-	}
+	return s.repo.Delete(ctx, id)
+}
 
-	return nil
+// GetByUserID retrieves a tutor by its associated user ID.
+func (s Service) GetByUserID(ctx context.Context, userId int) (Tutor, error) {
+	return s.repo.GetByUserID(ctx, userId)
 }

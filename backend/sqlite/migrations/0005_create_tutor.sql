@@ -6,6 +6,7 @@ CREATE TABLE tutors (
     email TEXT,
     phone TEXT,
     about_me TEXT,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
 
     created_at TIMESTAMP NOT NULL,
     modified_at TIMESTAMP

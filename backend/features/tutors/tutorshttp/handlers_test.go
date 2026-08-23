@@ -24,22 +24,25 @@ import (
 // fakeService lets each test control what the domain layer returns, without
 // a database in the loop.
 type fakeService struct {
-	createFn  func(context.Context, tutors.CreateIn) (tutors.Tutor, error)
-	getByIDFn func(context.Context, int) (tutors.Tutor, error)
-	getAllFn  func(context.Context) ([]tutors.Tutor, error)
-	updateFn  func(context.Context, tutors.UpdateIn) (tutors.Tutor, error)
-	deleteFn  func(context.Context, int) error
+	createFn      func(context.Context, tutors.CreateIn) (tutors.Tutor, error)
+	getByIDFn     func(context.Context, int) (tutors.Tutor, error)
+	getAllFn      func(context.Context) ([]tutors.Tutor, error)
+	updateFn      func(context.Context, tutors.UpdateIn) (tutors.Tutor, error)
+	deleteFn      func(context.Context, int) error
+	getByUserIDFn func(context.Context, int) (tutors.Tutor, error)
 
-	createCalled  bool
-	getByIDCalled bool
-	getAllCalled  bool
-	updateCalled  bool
-	deleteCalled  bool
+	createCalled      bool
+	getByIDCalled     bool
+	getAllCalled      bool
+	updateCalled      bool
+	deleteCalled      bool
+	getByUserIDCalled bool
 
-	gotCreate  tutors.CreateIn
-	gotGetByID int
-	gotUpdate  tutors.UpdateIn
-	gotDelete  int
+	gotCreate      tutors.CreateIn
+	gotGetByID     int
+	gotUpdate      tutors.UpdateIn
+	gotDelete      int
+	gotGetByUserID int
 }
 
 func (f *fakeService) Create(ctx context.Context, in tutors.CreateIn) (tutors.Tutor, error) {
@@ -69,6 +72,12 @@ func (f *fakeService) Delete(ctx context.Context, id int) error {
 	f.deleteCalled = true
 	f.gotDelete = id
 	return f.deleteFn(ctx, id)
+}
+
+func (f *fakeService) GetByUserID(ctx context.Context, userId int) (tutors.Tutor, error) {
+	f.getByUserIDCalled = true
+	f.gotGetByUserID = userId
+	return f.getByUserIDFn(ctx, userId)
 }
 
 var (
@@ -284,7 +293,7 @@ func TestCreate(t *testing.T) {
 		h := mounted(t, svc)
 
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPost, "/tutors/", tutors.CreateIn{DisplayName: "John"})))
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPost, "/tutors/", tutors.TutorFields{DisplayName: "John"})))
 
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
@@ -324,7 +333,7 @@ func TestCreate(t *testing.T) {
 		svc := &fakeService{}
 		h := mounted(t, svc)
 
-		buf, _ := json.Marshal(tutors.CreateIn{DisplayName: "John"})
+		buf, _ := json.Marshal(tutors.TutorFields{DisplayName: "John"})
 		req := authed(httptest.NewRequest(http.MethodPost, "/tutors/", bytes.NewReader(buf)))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -360,7 +369,7 @@ func TestCreate(t *testing.T) {
 		h := mounted(t, svc)
 
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/tutors/", tutors.CreateIn{DisplayName: "John"}))
+		h.ServeHTTP(w, newJSONRequest(http.MethodPost, "/tutors/", tutors.TutorFields{DisplayName: "John"}))
 
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
@@ -537,6 +546,65 @@ func TestRouting(t *testing.T) {
 
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusMethodNotAllowed, w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestGetMe(t *testing.T) {
+	t.Run("Success returns the tutor for the authenticated user", func(t *testing.T) {
+		svc := &fakeService{
+			getByUserIDFn: func(ctx context.Context, userId int) (tutors.Tutor, error) {
+				return tutors.Tutor{ID: 1, DisplayName: "John"}, nil
+			},
+		}
+		h := mounted(t, svc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, "/tutors/me", nil)))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		if svc.gotGetByUserID != 1 {
+			t.Errorf("expected the authenticated user's id (1) to reach the service, got %d", svc.gotGetByUserID)
+		}
+		var got tutors.Tutor
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if got.DisplayName != "John" {
+			t.Errorf("expected the service's tutor in the body, got %+v", got)
+		}
+	})
+
+	t.Run("Fail when unauthenticated", func(t *testing.T) {
+		svc := &fakeService{}
+		h := mounted(t, svc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/tutors/me", nil))
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+		}
+		if svc.getByUserIDCalled {
+			t.Error("expected the service not to be called when unauthenticated")
+		}
+	})
+
+	t.Run("Fail when authenticated user is not a tutor", func(t *testing.T) {
+		svc := fakeService{
+			getByUserIDFn: func(ctx context.Context, i int) (tutors.Tutor, error) {
+				return tutors.Tutor{}, tutors.ErrNotFound
+			},
+		}
+		h := mounted(t, &svc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, "/tutors/me", nil)))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusNotFound, w.Code, w.Body.String())
 		}
 	})
 }

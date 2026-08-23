@@ -11,9 +11,9 @@ import (
 )
 
 const createTutor = `-- name: CreateTutor :one
-INSERT INTO tutors (display_name, email, phone, about_me, created_at)
-    VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
-    RETURNING id, display_name, email, phone, about_me, created_at, modified_at
+INSERT INTO tutors (display_name, email, phone, about_me, user_id, created_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+    RETURNING id, display_name, email, phone, about_me, user_id, created_at, modified_at
 `
 
 type CreateTutorParams struct {
@@ -21,6 +21,7 @@ type CreateTutorParams struct {
 	Email       sql.NullString
 	Phone       sql.NullString
 	AboutMe     sql.NullString
+	UserID      int64
 }
 
 func (q *Queries) CreateTutor(ctx context.Context, arg CreateTutorParams) (Tutor, error) {
@@ -29,6 +30,7 @@ func (q *Queries) CreateTutor(ctx context.Context, arg CreateTutorParams) (Tutor
 		arg.Email,
 		arg.Phone,
 		arg.AboutMe,
+		arg.UserID,
 	)
 	var i Tutor
 	err := row.Scan(
@@ -37,6 +39,7 @@ func (q *Queries) CreateTutor(ctx context.Context, arg CreateTutorParams) (Tutor
 		&i.Email,
 		&i.Phone,
 		&i.AboutMe,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.ModifiedAt,
 	)
@@ -56,7 +59,7 @@ func (q *Queries) DeleteTutor(ctx context.Context, id int64) (int64, error) {
 }
 
 const getAllTutors = `-- name: GetAllTutors :many
-SELECT id, display_name, email, phone, about_me, created_at, modified_at FROM tutors
+SELECT id, display_name, email, phone, about_me, user_id, created_at, modified_at FROM tutors
 `
 
 func (q *Queries) GetAllTutors(ctx context.Context) ([]Tutor, error) {
@@ -74,6 +77,7 @@ func (q *Queries) GetAllTutors(ctx context.Context) ([]Tutor, error) {
 			&i.Email,
 			&i.Phone,
 			&i.AboutMe,
+			&i.UserID,
 			&i.CreatedAt,
 			&i.ModifiedAt,
 		); err != nil {
@@ -91,7 +95,7 @@ func (q *Queries) GetAllTutors(ctx context.Context) ([]Tutor, error) {
 }
 
 const getTutorById = `-- name: GetTutorById :one
-SELECT id, display_name, email, phone, about_me, created_at, modified_at FROM tutors WHERE id = ? LIMIT 1
+SELECT id, display_name, email, phone, about_me, user_id, created_at, modified_at FROM tutors WHERE id = ? LIMIT 1
 `
 
 func (q *Queries) GetTutorById(ctx context.Context, id int64) (Tutor, error) {
@@ -103,42 +107,19 @@ func (q *Queries) GetTutorById(ctx context.Context, id int64) (Tutor, error) {
 		&i.Email,
 		&i.Phone,
 		&i.AboutMe,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.ModifiedAt,
 	)
 	return i, err
 }
 
-const saveTutor = `-- name: SaveTutor :one
-INSERT INTO tutors (id, display_name, email, phone, about_me, created_at)
-    VALUES (NULLIF(?1, 0), ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
-    ON CONFLICT (id) DO UPDATE SET
-        display_name = EXCLUDED.display_name,
-        email = EXCLUDED.email,
-        phone = EXCLUDED.phone,
-        about_me = EXCLUDED.about_me,
-        modified_at = CURRENT_TIMESTAMP
-    RETURNING id, display_name, email, phone, about_me, created_at, modified_at
+const getTutorByUserID = `-- name: GetTutorByUserID :one
+SELECT id, display_name, email, phone, about_me, user_id, created_at, modified_at FROM tutors WHERE user_id = ? LIMIT 1
 `
 
-type SaveTutorParams struct {
-	ID          interface{}
-	DisplayName string
-	Email       sql.NullString
-	Phone       sql.NullString
-	AboutMe     sql.NullString
-}
-
-// This query will try to insert a new tutor record. If a record with the same id
-// already exists, it will update the existing record instead.
-func (q *Queries) SaveTutor(ctx context.Context, arg SaveTutorParams) (Tutor, error) {
-	row := q.db.QueryRowContext(ctx, saveTutor,
-		arg.ID,
-		arg.DisplayName,
-		arg.Email,
-		arg.Phone,
-		arg.AboutMe,
-	)
+func (q *Queries) GetTutorByUserID(ctx context.Context, userID int64) (Tutor, error) {
+	row := q.db.QueryRowContext(ctx, getTutorByUserID, userID)
 	var i Tutor
 	err := row.Scan(
 		&i.ID,
@@ -146,6 +127,7 @@ func (q *Queries) SaveTutor(ctx context.Context, arg SaveTutorParams) (Tutor, er
 		&i.Email,
 		&i.Phone,
 		&i.AboutMe,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.ModifiedAt,
 	)
@@ -160,7 +142,7 @@ SET display_name = ?1,
     about_me = ?4,
     modified_at = CURRENT_TIMESTAMP
 WHERE id = ?5
-RETURNING id, display_name, email, phone, about_me, created_at, modified_at
+RETURNING id, display_name, email, phone, about_me, user_id, created_at, modified_at
 `
 
 type UpdateTutorParams struct {
@@ -186,6 +168,7 @@ func (q *Queries) UpdateTutor(ctx context.Context, arg UpdateTutorParams) (Tutor
 		&i.Email,
 		&i.Phone,
 		&i.AboutMe,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.ModifiedAt,
 	)

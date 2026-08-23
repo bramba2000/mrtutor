@@ -50,12 +50,13 @@ func (r Repository) GetByID(ctx context.Context, id int) (tutors.Tutor, error) {
 }
 
 // Create implements [tutors.Repository].
-func (r Repository) Create(ctx context.Context, t tutors.TutorFields) (tutors.Tutor, error) {
+func (r Repository) Create(ctx context.Context, t tutors.TutorFields, userId int) (tutors.Tutor, error) {
 	got, err := r.W.CreateTutor(ctx, gen.CreateTutorParams{
 		DisplayName: t.DisplayName,
 		Email:       sql.NullString{String: t.Email, Valid: t.Email != ""},
 		Phone:       sql.NullString{String: t.Phone, Valid: t.Phone != ""},
 		AboutMe:     sql.NullString{String: t.AboutMe, Valid: t.AboutMe != ""},
+		UserID:      int64(userId),
 	})
 	if err != nil {
 		return tutors.Tutor{}, sqlite.TranslateSQLError("tutors.Create", err, nil, nil)
@@ -78,6 +79,15 @@ func (r Repository) Update(ctx context.Context, id int, t tutors.TutorFields) (t
 	return toTutor(got), nil
 }
 
+// GetByUserID implements [tutors.Repository].
+func (r Repository) GetByUserID(ctx context.Context, userId int) (tutors.Tutor, error) {
+	got, err := r.R.GetTutorByUserID(ctx, int64(userId))
+	if err != nil {
+		return tutors.Tutor{}, sqlite.TranslateSQLError("tutors.GetByUserID", err, tutors.ErrNotFound, nil)
+	}
+	return toTutor(got), nil
+}
+
 func NewRepository(r *sqlite.DB) *Repository {
 	return &Repository{
 		R: gen.New(r.R),
@@ -94,6 +104,7 @@ func toTutor(t gen.Tutor) tutors.Tutor {
 		Email:       t.Email.String,
 		Phone:       t.Phone.String,
 		AboutMe:     t.AboutMe.String,
+		UserID:      int(t.UserID),
 		CreatedAt:   t.CreatedAt,
 		ModifiedAt:  t.ModifiedAt.Time,
 	}

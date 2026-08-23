@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/bramba2000/mrtutor/backend/errs"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/auth/authsqlite"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/features/tutors/tutorssqlite"
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
@@ -19,26 +21,46 @@ func newRepo(t *testing.T) *tutorssqlite.Repository {
 	return tutorssqlite.NewRepository(db)
 }
 
-func seedTutor(t *testing.T, repo tutors.Repository, displayName string) tutors.Tutor {
+func seedTutor(t *testing.T, repo tutors.Repository, displayName string, userId int) tutors.Tutor {
 	t.Helper()
-	saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: displayName})
+	saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: displayName}, userId)
 	if err != nil {
 		t.Fatalf("failed to seed tutor: %v", err)
 	}
 	return saved
 }
 
+func setupPrincipal(t *testing.T, store auth.PrincipalStore, username string) auth.Principal {
+	t.Helper()
+	created, err := store.Create(t.Context(), auth.Principal{
+		Username:     username,
+		Email:        username + "@example.com",
+		PasswordHash: []byte("passwordHash"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create principal: %v", err)
+	}
+	return created
+}
+
 func TestTutorRepository(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
 	t.Run("Save", func(t *testing.T) {
 		t.Run("Successful create", func(t *testing.T) {
-			repo := newRepo(t)
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			principal := setupPrincipal(t, principalStore, "testuser")
 			tutor := tutors.TutorFields{
 				DisplayName: "test",
 				Email:       "test@example.com",
 				Phone:       "+393334455666",
 				AboutMe:     "I teach math and physics.",
 			}
-			created, err := repo.Create(t.Context(), tutor)
+			created, err := repo.Create(t.Context(), tutor, principal.ID)
 			if err != nil {
 				t.Fatalf("failed to create tutor: %v", err)
 			}
@@ -60,8 +82,11 @@ func TestTutorRepository(t *testing.T) {
 		})
 
 		t.Run("Successful update preserves CreatedAt", func(t *testing.T) {
-			repo := newRepo(t)
-			created := seedTutor(t, repo, "update me")
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			principal := setupPrincipal(t, principalStore, "testuser")
+			created := seedTutor(t, repo, "update me", principal.ID)
 
 			updated, err := repo.Update(t.Context(), created.ID, tutors.TutorFields{
 				DisplayName: "updated name",
@@ -97,8 +122,11 @@ func TestTutorRepository(t *testing.T) {
 		})
 
 		t.Run("Empty optional fields round-trip as empty strings", func(t *testing.T) {
-			repo := newRepo(t)
-			saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: "only name"})
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			principal := setupPrincipal(t, principalStore, "testuser")
+			saved, err := repo.Create(t.Context(), tutors.TutorFields{DisplayName: "only name"}, principal.ID)
 			if err != nil {
 				t.Fatalf("failed to save tutor: %v", err)
 			}
@@ -117,8 +145,11 @@ func TestTutorRepository(t *testing.T) {
 
 	t.Run("GetByID", func(t *testing.T) {
 		t.Run("Successful get tutor by id", func(t *testing.T) {
-			repo := newRepo(t)
-			tutor := seedTutor(t, repo, "test get tutor by id")
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			principal := setupPrincipal(t, principalStore, "testuser")
+			tutor := seedTutor(t, repo, "test get tutor by id", principal.ID)
 			got, err := repo.GetByID(t.Context(), tutor.ID)
 			if err != nil {
 				t.Fatalf("failed to get tutor by id: %v", err)
@@ -142,9 +173,13 @@ func TestTutorRepository(t *testing.T) {
 
 	t.Run("GetAll", func(t *testing.T) {
 		t.Run("Successful get all tutors", func(t *testing.T) {
-			repo := newRepo(t)
-			tutor1 := seedTutor(t, repo, "test get all tutors 1")
-			tutor2 := seedTutor(t, repo, "test get all tutors 2")
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			principal1 := setupPrincipal(t, principalStore, "testuser1")
+			principal2 := setupPrincipal(t, principalStore, "testuser2")
+			tutor1 := seedTutor(t, repo, "test get all tutors 1", principal1.ID)
+			tutor2 := seedTutor(t, repo, "test get all tutors 2", principal2.ID)
 
 			got, err := repo.GetAll(t.Context())
 			if err != nil {
@@ -182,8 +217,10 @@ func TestTutorRepository(t *testing.T) {
 
 	t.Run("Delete", func(t *testing.T) {
 		t.Run("Successful delete", func(t *testing.T) {
-			repo := newRepo(t)
-			tutor := seedTutor(t, repo, "to delete")
+			db := sqlitetest.OpenTemp(t)
+			repo := tutorssqlite.NewRepository(db)
+			principalStore := authsqlite.Build(db).PrincipalStore
+			tutor := seedTutor(t, repo, "to delete", setupPrincipal(t, principalStore, "testuser").ID)
 
 			if err := repo.Delete(t.Context(), tutor.ID); err != nil {
 				t.Fatalf("failed to delete tutor: %v", err)

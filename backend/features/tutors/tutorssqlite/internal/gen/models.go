@@ -15,6 +15,7 @@ type Tutor struct {
 	Email       sql.NullString
 	Phone       sql.NullString
 	AboutMe     sql.NullString
+	UserID      int64
 	CreatedAt   time.Time
 	ModifiedAt  sql.NullTime
 }

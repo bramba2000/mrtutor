@@ -43,7 +43,7 @@ func TestTutors(t *testing.T) {
 	principal := seedPrincipal(t, authStorage.PrincipalStore, "tutors", "Test00!")
 
 	t.Run("Cannot create a new tutor when unauthenticated", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.CreateIn{
+		req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.TutorFields{
 			DisplayName: "John",
 			Email:       "john@example.com",
 			Phone:       "+393334455667",
@@ -93,7 +93,7 @@ func TestTutors(t *testing.T) {
 		var id int
 
 		t.Run("Create", func(t *testing.T) {
-			req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.CreateIn{
+			req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.TutorFields{
 				DisplayName: "John",
 				Email:       "john@example.com",
 				Phone:       "+393334455667",
@@ -122,6 +122,9 @@ func TestTutors(t *testing.T) {
 			if body.CreatedAt.IsZero() {
 				t.Errorf("Expected CreatedAt to be set")
 			}
+			if body.UserID != principal.ID {
+				t.Errorf("Expected UserID to be %d, got %d", principal.ID, body.UserID)
+			}
 			id = body.ID
 		})
 
@@ -140,6 +143,27 @@ func TestTutors(t *testing.T) {
 			}
 			if body.ID != id {
 				t.Errorf("Expected ID %d, got %d", id, body.ID)
+			}
+		})
+
+		t.Run("Get tutor for current signed user", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/tutors/me", nil)
+			authenticateRequest(t, authStorage.SessionStore, principal, req)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
+			}
+			var body tutors.Tutor
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("Failed to decode response: %v", err)
+			}
+			if body.ID != id {
+				t.Errorf("Expected ID %d, got %d", id, body.ID)
+			}
+			if body.UserID != principal.ID {
+				t.Errorf("Expected UserID %d, got %d", principal.ID, body.UserID)
 			}
 		})
 
