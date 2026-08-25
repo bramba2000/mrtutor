@@ -10,6 +10,7 @@ import type { CreateStudentRequest, UpdateStudentRequest } from '../types'
 import { useForm } from '@tanstack/react-form'
 import { useQuery } from '@tanstack/react-query'
 import * as v from 'valibot'
+import { phoneMask } from '#/lib/phone'
 import {
   getStudentClassesQueryOptions,
   getStudentSchoolsQueryOptions,
@@ -19,17 +20,6 @@ import {
 } from '../queries'
 
 type StudentUpsertData = CreateStudentRequest | UpdateStudentRequest
-
-// Subscriber number: a leading group of 3 digits, then every remaining
-// digit (up to the backend's 14-digit max) in one trailing group.
-const MAX_SUBSCRIBER_DIGITS = 14
-
-function phoneMask(raw: string): string {
-  const ccLen = raw[0] === '7' ? 1 : 2
-  const cc = '9'.repeat(ccLen)
-  const rest = '9'.repeat(MAX_SUBSCRIBER_DIGITS - 3)
-  return `+${cc} 999 ${rest}`
-}
 
 const emptyStudentData: StudentUpsertData = {
   displayName: '',

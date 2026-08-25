@@ -13,7 +13,6 @@ import (
 	"github.com/bramba2000/mrtutor/backend/features/enrollments"
 	"github.com/bramba2000/mrtutor/backend/features/enrollments/enrollmentssqlite"
 	"github.com/bramba2000/mrtutor/backend/features/students"
-	"github.com/bramba2000/mrtutor/backend/features/students/studentshttp"
 	"github.com/bramba2000/mrtutor/backend/features/students/studentssqlite"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/features/tutors/tutorshttp"
@@ -22,7 +21,7 @@ import (
 	"github.com/bramba2000/mrtutor/backend/sqlite/sqlitetest"
 )
 
-func TestStudents(t *testing.T) {
+func TestTutors(t *testing.T) {
 	skipIfNotIntegration(t)
 
 	logger := slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{
@@ -39,34 +38,26 @@ func TestStudents(t *testing.T) {
 	authStorage := authsqlite.Build(db)
 	authService := auth.NewService(authStorage.PrincipalStore, authStorage.SessionStore, authStorage.UnitOfWork)
 
-	repo := studentssqlite.NewRepository(db)
-	svc := students.NewService(repo)
+	repo := tutorssqlite.NewRepository(db)
+	svc := tutors.NewService(repo)
 
-	tutorsRepo := tutorssqlite.NewRepository(db)
-	tutorsSvc := tutors.NewService(tutorsRepo)
+	studentsRepo := studentssqlite.NewRepository(db)
+	studentsSvc := students.NewService(studentsRepo)
 
 	enrollmentsRepo := enrollmentssqlite.NewRepository(db)
 	enrollmentsSvc := enrollments.NewService(enrollmentsRepo)
 
 	router := httpx.NewRouter("")
-	studentshttp.NewHandler(svc, tutorsSvc, enrollmentsSvc, authService, logger).Mount(router)
-	tutorshttp.NewHandler(tutorsSvc, enrollmentsSvc, svc, authService, logger).Mount(router)
+	tutorshttp.NewHandler(svc, enrollmentsSvc, studentsSvc, authService, logger).Mount(router)
 
-	principal := seedPrincipal(t, authStorage.PrincipalStore, "students", "Test00!")
+	principal := seedPrincipal(t, authStorage.PrincipalStore, "tutors", "Test00!")
 
-	tutor, err := tutorsRepo.Create(t.Context(), tutors.TutorFields{DisplayName: "Tutor"}, principal.ID)
-	if err != nil {
-		t.Fatalf("failed to seed tutor for principal: %v", err)
-	}
-
-	t.Run("Cannot create a new student when unauthenticated", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPost, "/students/", students.CreateIn{
-			DisplayName:  "John",
-			Email:        "john@example.com",
-			Phone:        "333 445566777",
-			School:       "School",
-			StudyProgram: "Study program",
-			Class:        "Class",
+	t.Run("Cannot create a new tutor when unauthenticated", func(t *testing.T) {
+		req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.TutorFields{
+			DisplayName: "John",
+			Email:       "john@example.com",
+			Phone:       "+393334455667",
+			AboutMe:     "I teach math.",
 		})
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -76,8 +67,8 @@ func TestStudents(t *testing.T) {
 		}
 	})
 
-	t.Run("Cannot list students when unauthenticated", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/students/", nil)
+	t.Run("Cannot list tutors when unauthenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/tutors/", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -86,8 +77,10 @@ func TestStudents(t *testing.T) {
 		}
 	})
 
-	t.Run("Cannot update a student when unauthenticated", func(t *testing.T) {
-		req := newJSONRequest(t, http.MethodPut, "/students/1", students.UpdateIn{DisplayName: "John"})
+	t.Run("Cannot update a tutor when unauthenticated", func(t *testing.T) {
+		req := newJSONRequest(t, http.MethodPut, "/tutors/1", tutors.UpdateIn{
+			TutorFields: tutors.TutorFields{DisplayName: "John"},
+		})
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -96,8 +89,8 @@ func TestStudents(t *testing.T) {
 		}
 	})
 
-	t.Run("Cannot delete a student when unauthenticated", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/students/1", nil)
+	t.Run("Cannot delete a tutor when unauthenticated", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/tutors/1", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -110,14 +103,11 @@ func TestStudents(t *testing.T) {
 		var id int
 
 		t.Run("Create", func(t *testing.T) {
-			req := newJSONRequest(t, http.MethodPost, "/students/", students.CreateIn{
-				DisplayName:  "John",
-				Email:        "john@example.com",
-				Phone:        "+393333445566777",
-				School:       "School",
-				StudyProgram: "Study program",
-				Class:        "Class",
-				BirthDate:    "2000-01-01",
+			req := newJSONRequest(t, http.MethodPost, "/tutors/", tutors.TutorFields{
+				DisplayName: "John",
+				Email:       "john@example.com",
+				Phone:       "+393334455667",
+				AboutMe:     "I teach math and physics.",
 			})
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
@@ -126,7 +116,7 @@ func TestStudents(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				t.Fatalf("Expected status code %d, got %d", http.StatusCreated, w.Code)
 			}
-			var body students.Student
+			var body tutors.Tutor
 			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
@@ -136,17 +126,20 @@ func TestStudents(t *testing.T) {
 			if body.ID == 0 {
 				t.Errorf("Expected ID to be set, got 0")
 			}
-			if body.BirthDate != "2000-01-01" {
-				t.Errorf("Expected BirthDate to be '2000-01-01', got '%s'", body.BirthDate)
+			if body.AboutMe != "I teach math and physics." {
+				t.Errorf("Expected AboutMe to be 'I teach math and physics.', got '%s'", body.AboutMe)
 			}
 			if body.CreatedAt.IsZero() {
 				t.Errorf("Expected CreatedAt to be set")
+			}
+			if body.UserID != principal.ID {
+				t.Errorf("Expected UserID to be %d, got %d", principal.ID, body.UserID)
 			}
 			id = body.ID
 		})
 
 		t.Run("Get by id", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/students/"+strconv.Itoa(id), nil)
+			req := httptest.NewRequest(http.MethodGet, "/tutors/"+strconv.Itoa(id), nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -154,7 +147,7 @@ func TestStudents(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
 			}
-			var body students.Student
+			var body tutors.Tutor
 			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
@@ -163,8 +156,8 @@ func TestStudents(t *testing.T) {
 			}
 		})
 
-		t.Run("Appears in the list", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/students/", nil)
+		t.Run("Get tutor for current signed user", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/tutors/me", nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -172,23 +165,52 @@ func TestStudents(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
 			}
-			var body []students.Student
+			var body tutors.Tutor
 			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
-			found := false
-			for _, s := range body {
-				if s.ID == id {
-					found = true
-				}
+			if body.ID != id {
+				t.Errorf("Expected ID %d, got %d", id, body.ID)
 			}
-			if !found {
-				t.Errorf("Expected the created student to appear in the list, got %+v", body)
+			if body.UserID != principal.ID {
+				t.Errorf("Expected UserID %d, got %d", principal.ID, body.UserID)
 			}
 		})
 
-		t.Run("Appears in the signed-in tutor's student list", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/tutors/"+strconv.Itoa(tutor.ID)+"/students", nil)
+		t.Run("Appears in the list", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/tutors/", nil)
+			authenticateRequest(t, authStorage.SessionStore, principal, req)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
+			}
+			var body []tutors.Tutor
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("Failed to decode response: %v", err)
+			}
+			found := false
+			for _, tt := range body {
+				if tt.ID == id {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("Expected the created tutor to appear in the list, got %+v", body)
+			}
+		})
+
+		t.Run("Get students enrolled with the tutor", func(t *testing.T) {
+			student, err := studentsRepo.Save(t.Context(), students.Student{DisplayName: "Enrolled student"})
+			if err != nil {
+				t.Fatalf("Failed to seed student: %v", err)
+			}
+			if _, err := enrollmentsRepo.Link(t.Context(), id, student.ID); err != nil {
+				t.Fatalf("Failed to link student to tutor: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/tutors/"+strconv.Itoa(id)+"/students", nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -200,26 +222,19 @@ func TestStudents(t *testing.T) {
 			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
-			found := false
-			for _, s := range body {
-				if s.ID == id {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("Expected the created student to appear in the tutor's student list, got %+v", body)
+			if len(body) != 1 || body[0].ID != student.ID {
+				t.Errorf("Expected the enrolled student in the response, got %+v", body)
 			}
 		})
 
 		t.Run("Update", func(t *testing.T) {
-			req := newJSONRequest(t, http.MethodPut, "/students/"+strconv.Itoa(id), students.UpdateIn{
-				DisplayName:  "John Updated",
-				Email:        "john.updated@example.com",
-				Phone:        "+393333445566777",
-				School:       "School",
-				StudyProgram: "Study program",
-				Class:        "Class",
-				BirthDate:    "2000-01-01",
+			req := newJSONRequest(t, http.MethodPut, "/tutors/"+strconv.Itoa(id), tutors.UpdateIn{
+				TutorFields: tutors.TutorFields{
+					DisplayName: "John Updated",
+					Email:       "john.updated@example.com",
+					Phone:       "+393334455667",
+					AboutMe:     "I teach math, physics, and chemistry.",
+				},
 			})
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
@@ -228,7 +243,7 @@ func TestStudents(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
 			}
-			var body students.Student
+			var body tutors.Tutor
 			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
@@ -244,8 +259,10 @@ func TestStudents(t *testing.T) {
 		})
 
 		t.Run("Update with an invalid body fails validation", func(t *testing.T) {
-			req := newJSONRequest(t, http.MethodPut, "/students/"+strconv.Itoa(id), students.UpdateIn{
-				DisplayName: "",
+			req := newJSONRequest(t, http.MethodPut, "/tutors/"+strconv.Itoa(id), tutors.UpdateIn{
+				TutorFields: tutors.TutorFields{
+					DisplayName: "",
+				},
 			})
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
@@ -257,7 +274,7 @@ func TestStudents(t *testing.T) {
 		})
 
 		t.Run("Delete", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodDelete, "/students/"+strconv.Itoa(id), nil)
+			req := httptest.NewRequest(http.MethodDelete, "/tutors/"+strconv.Itoa(id), nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -268,7 +285,7 @@ func TestStudents(t *testing.T) {
 		})
 
 		t.Run("Get by id now returns 404", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/students/"+strconv.Itoa(id), nil)
+			req := httptest.NewRequest(http.MethodGet, "/tutors/"+strconv.Itoa(id), nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -279,7 +296,7 @@ func TestStudents(t *testing.T) {
 		})
 
 		t.Run("Delete again now returns 404", func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodDelete, "/students/"+strconv.Itoa(id), nil)
+			req := httptest.NewRequest(http.MethodDelete, "/tutors/"+strconv.Itoa(id), nil)
 			authenticateRequest(t, authStorage.SessionStore, principal, req)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
