@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
+	"github.com/bramba2000/mrtutor/backend/features/students"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/features/tutors/tutorshttp"
 	"github.com/bramba2000/mrtutor/backend/httpx"
@@ -87,6 +89,39 @@ var (
 	_ httpx.Validable    = tutors.UpdateIn{}
 )
 
+// fakeEnrollmentsService implements [tutorshttp.EnrollmentsService].
+type fakeEnrollmentsService struct {
+	getByTutorIDFn func(context.Context, int) ([]enrollments.Enrollment, error)
+
+	getByTutorIDCalled bool
+	gotGetByTutorID    int
+}
+
+func (f *fakeEnrollmentsService) GetByTutorID(ctx context.Context, tutorID int) ([]enrollments.Enrollment, error) {
+	f.getByTutorIDCalled = true
+	f.gotGetByTutorID = tutorID
+	return f.getByTutorIDFn(ctx, tutorID)
+}
+
+// fakeStudentsService implements [tutorshttp.StudentsService].
+type fakeStudentsService struct {
+	getByIDFn func(context.Context, int) (students.Student, error)
+
+	getByIDCalled bool
+	gotGetByID    int
+}
+
+func (f *fakeStudentsService) GetByID(ctx context.Context, id int) (students.Student, error) {
+	f.getByIDCalled = true
+	f.gotGetByID = id
+	return f.getByIDFn(ctx, id)
+}
+
+var (
+	_ tutorshttp.EnrollmentsService = (*fakeEnrollmentsService)(nil)
+	_ tutorshttp.StudentsService    = (*fakeStudentsService)(nil)
+)
+
 // fakeAuthenticator implements [authhttp.Authenticator] without a database.
 type fakeAuthenticator struct{}
 
@@ -125,9 +160,14 @@ func authed(req *http.Request) *http.Request {
 
 func mounted(t *testing.T, svc tutorshttp.Service) *httpx.Router {
 	t.Helper()
+	return mountedWithDeps(t, svc, &fakeEnrollmentsService{}, &fakeStudentsService{})
+}
+
+func mountedWithDeps(t *testing.T, svc tutorshttp.Service, enrollmentsSvc tutorshttp.EnrollmentsService, studentsSvc tutorshttp.StudentsService) *httpx.Router {
+	t.Helper()
 	r := httpx.NewRouter("")
 	l := slog.New(slog.NewTextHandler(t.Output(), nil))
-	tutorshttp.NewHandler(svc, fakeAuthenticator{}, l).Mount(r)
+	tutorshttp.NewHandler(svc, enrollmentsSvc, studentsSvc, fakeAuthenticator{}, l).Mount(r)
 	return r
 }
 
@@ -605,6 +645,88 @@ func TestGetMe(t *testing.T) {
 
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected status %d, got %d: %s", http.StatusNotFound, w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestGetStudentsByTutorID(t *testing.T) {
+	t.Run("Success returns the tutor's students", func(t *testing.T) {
+		enr := &fakeEnrollmentsService{
+			getByTutorIDFn: func(ctx context.Context, tutorID int) ([]enrollments.Enrollment, error) {
+				return []enrollments.Enrollment{{StudentID: 9}}, nil
+			},
+		}
+		std := &fakeStudentsService{
+			getByIDFn: func(ctx context.Context, id int) (students.Student, error) {
+				return students.Student{ID: id, DisplayName: "Jane"}, nil
+			},
+		}
+		h := mountedWithDeps(t, &fakeService{}, enr, std)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, "/tutors/7/students", nil)))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		if enr.gotGetByTutorID != 7 {
+			t.Errorf("expected tutor id 7 to reach the enrollments service, got %d", enr.gotGetByTutorID)
+		}
+		if std.gotGetByID != 9 {
+			t.Errorf("expected student id 9 to reach the students service, got %d", std.gotGetByID)
+		}
+		var got []students.Student
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(got) != 1 || got[0].DisplayName != "Jane" {
+			t.Errorf("expected Jane in the body, got %+v", got)
+		}
+	})
+
+	t.Run("Fail when the id is not numeric", func(t *testing.T) {
+		enr := &fakeEnrollmentsService{}
+		h := mountedWithDeps(t, &fakeService{}, enr, &fakeStudentsService{})
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, "/tutors/abc/students", nil)))
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, w.Code, w.Body.String())
+		}
+		if enr.getByTutorIDCalled {
+			t.Error("expected the enrollments service not to be called with an invalid id")
+		}
+	})
+
+	t.Run("Fail when unauthenticated", func(t *testing.T) {
+		enr := &fakeEnrollmentsService{}
+		h := mountedWithDeps(t, &fakeService{}, enr, &fakeStudentsService{})
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/tutors/7/students", nil))
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+		}
+		if enr.getByTutorIDCalled {
+			t.Error("expected the enrollments service not to be called when unauthenticated")
+		}
+	})
+
+	t.Run("Propagates an enrollments service error", func(t *testing.T) {
+		enr := &fakeEnrollmentsService{
+			getByTutorIDFn: func(context.Context, int) ([]enrollments.Enrollment, error) {
+				return nil, errors.New("db is on fire")
+			},
+		}
+		h := mountedWithDeps(t, &fakeService{}, enr, &fakeStudentsService{})
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(httptest.NewRequest(http.MethodGet, "/tutors/7/students", nil)))
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusInternalServerError, w.Code, w.Body.String())
 		}
 	})
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/bramba2000/mrtutor/backend/errs"
 	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
+	"github.com/bramba2000/mrtutor/backend/features/students"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 )
@@ -24,18 +26,55 @@ type Service interface {
 
 var _ Service = tutors.Service{}
 
+// EnrollmentsService is the consumer-side port onto [enrollments.Service]
+// needed to resolve which students are enrolled with a tutor.
+type EnrollmentsService interface {
+	GetByTutorID(context.Context, int) ([]enrollments.Enrollment, error)
+}
+
+var _ EnrollmentsService = enrollments.Service{}
+
+// StudentsService is the consumer-side port onto [students.Service] needed
+// to hydrate enrollments into full student records.
+type StudentsService interface {
+	GetByID(context.Context, int) (students.Student, error)
+}
+
+var _ StudentsService = students.Service{}
+
 type Handler struct {
 	service       Service
+	enrollments   EnrollmentsService
+	students      StudentsService
 	authenticator authhttp.Authenticator
 	logger        *slog.Logger
 }
 
-func NewHandler(service Service, authenticator authhttp.Authenticator, logger *slog.Logger) Handler {
+func NewHandler(service Service, enrollments EnrollmentsService, students StudentsService, authenticator authhttp.Authenticator, logger *slog.Logger) Handler {
 	return Handler{
 		service:       service,
+		enrollments:   enrollments,
+		students:      students,
 		logger:        logger,
 		authenticator: authenticator,
 	}
+}
+
+// getStudentsByTutorID returns every student enrolled with the given tutor.
+func (h Handler) getStudentsByTutorID(ctx context.Context, tutorID int) ([]students.Student, error) {
+	links, err := h.enrollments.GetByTutorID(ctx, tutorID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]students.Student, 0, len(links))
+	for _, link := range links {
+		student, err := h.students.GetByID(ctx, link.StudentID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, student)
+	}
+	return result, nil
 }
 
 func decodeTutorID(r *http.Request) (int, error) {
@@ -72,6 +111,12 @@ func (h Handler) Mount(router *httpx.Router) {
 	group.Handle("GET /{id}", httpx.WrapUnvalidated(
 		decodeTutorID,
 		h.service.GetByID,
+		httpx.OK,
+		h.logger,
+	))
+	group.Handle("GET /{id}/students", httpx.WrapUnvalidated(
+		decodeTutorID,
+		h.getStudentsByTutorID,
 		httpx.OK,
 		h.logger,
 	))

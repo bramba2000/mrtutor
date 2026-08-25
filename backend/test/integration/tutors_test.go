@@ -10,6 +10,10 @@ import (
 
 	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authsqlite"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments/enrollmentssqlite"
+	"github.com/bramba2000/mrtutor/backend/features/students"
+	"github.com/bramba2000/mrtutor/backend/features/students/studentssqlite"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/features/tutors/tutorshttp"
 	"github.com/bramba2000/mrtutor/backend/features/tutors/tutorssqlite"
@@ -37,8 +41,14 @@ func TestTutors(t *testing.T) {
 	repo := tutorssqlite.NewRepository(db)
 	svc := tutors.NewService(repo)
 
+	studentsRepo := studentssqlite.NewRepository(db)
+	studentsSvc := students.NewService(studentsRepo)
+
+	enrollmentsRepo := enrollmentssqlite.NewRepository(db)
+	enrollmentsSvc := enrollments.NewService(enrollmentsRepo)
+
 	router := httpx.NewRouter("")
-	tutorshttp.NewHandler(svc, authService, logger).Mount(router)
+	tutorshttp.NewHandler(svc, enrollmentsSvc, studentsSvc, authService, logger).Mount(router)
 
 	principal := seedPrincipal(t, authStorage.PrincipalStore, "tutors", "Test00!")
 
@@ -188,6 +198,32 @@ func TestTutors(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("Expected the created tutor to appear in the list, got %+v", body)
+			}
+		})
+
+		t.Run("Get students enrolled with the tutor", func(t *testing.T) {
+			student, err := studentsRepo.Save(t.Context(), students.Student{DisplayName: "Enrolled student"})
+			if err != nil {
+				t.Fatalf("Failed to seed student: %v", err)
+			}
+			if _, err := enrollmentsRepo.Link(t.Context(), id, student.ID); err != nil {
+				t.Fatalf("Failed to link student to tutor: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/tutors/"+strconv.Itoa(id)+"/students", nil)
+			authenticateRequest(t, authStorage.SessionStore, principal, req)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected status code %d, got %d", http.StatusOK, w.Code)
+			}
+			var body []students.Student
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("Failed to decode response: %v", err)
+			}
+			if len(body) != 1 || body[0].ID != student.ID {
+				t.Errorf("Expected the enrolled student in the response, got %+v", body)
 			}
 		})
 

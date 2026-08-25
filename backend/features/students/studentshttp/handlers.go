@@ -7,8 +7,11 @@ import (
 	"strconv"
 
 	"github.com/bramba2000/mrtutor/backend/errs"
+	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authhttp"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
 	"github.com/bramba2000/mrtutor/backend/features/students"
+	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 )
 
@@ -25,18 +28,77 @@ type Service interface {
 
 var _ Service = students.Service{}
 
+// TutorsService is the consumer-side port onto [tutors.Service] needed to
+// resolve the tutor profile of the currently signed-in user.
+type TutorsService interface {
+	GetByUserID(context.Context, int) (tutors.Tutor, error)
+}
+
+var _ TutorsService = tutors.Service{}
+
+// EnrollmentsService is the consumer-side port onto [enrollments.Service]
+// needed to enroll a newly created/updated student with the signed-in tutor.
+type EnrollmentsService interface {
+	Link(context.Context, int, int) (enrollments.Enrollment, error)
+}
+
+var _ EnrollmentsService = enrollments.Service{}
+
 type Handler struct {
 	service       Service
+	tutors        TutorsService
+	enrollments   EnrollmentsService
 	authenticator authhttp.Authenticator
 	logger        *slog.Logger
 }
 
-func NewHandler(service Service, authenticator authhttp.Authenticator, logger *slog.Logger) Handler {
+func NewHandler(service Service, tutors TutorsService, enrollments EnrollmentsService, authenticator authhttp.Authenticator, logger *slog.Logger) Handler {
 	return Handler{
 		service:       service,
+		tutors:        tutors,
+		enrollments:   enrollments,
 		logger:        logger,
 		authenticator: authenticator,
 	}
+}
+
+// enrollWithCurrentTutor links the given student with the tutor profile of
+// the currently signed-in user.
+func (h Handler) enrollWithCurrentTutor(ctx context.Context, studentID int) error {
+	principal, ok := auth.FromContext(ctx)
+	if !ok {
+		return auth.ErrUnauthenticated
+	}
+	tutor, err := h.tutors.GetByUserID(ctx, principal.ID)
+	if err != nil {
+		return err
+	}
+	_, err = h.enrollments.Link(ctx, tutor.ID, studentID)
+	return err
+}
+
+// create creates a student and enrolls it with the signed-in tutor.
+func (h Handler) create(ctx context.Context, in students.CreateIn) (students.Student, error) {
+	student, err := h.service.Create(ctx, in)
+	if err != nil {
+		return students.Student{}, err
+	}
+	if err := h.enrollWithCurrentTutor(ctx, student.ID); err != nil {
+		return students.Student{}, err
+	}
+	return student, nil
+}
+
+// update updates a student and enrolls it with the signed-in tutor.
+func (h Handler) update(ctx context.Context, in students.UpdateIn) (students.Student, error) {
+	student, err := h.service.Update(ctx, in)
+	if err != nil {
+		return students.Student{}, err
+	}
+	if err := h.enrollWithCurrentTutor(ctx, student.ID); err != nil {
+		return students.Student{}, err
+	}
+	return student, nil
 }
 
 func decodeStudentID(r *http.Request) (int, error) {
@@ -82,7 +144,7 @@ func (h Handler) Mount(router *httpx.Router) {
 	))
 	group.Handle("POST /", httpx.Wrap(
 		httpx.BodyDecoder,
-		h.service.Create,
+		h.create,
 		httpx.Created,
 		h.logger,
 	))
@@ -107,7 +169,7 @@ func (h Handler) Mount(router *httpx.Router) {
 			student.ID = id
 			return student, nil
 		},
-		h.service.Update,
+		h.update,
 		httpx.OK,
 		h.logger,
 	))

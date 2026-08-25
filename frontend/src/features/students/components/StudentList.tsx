@@ -1,17 +1,20 @@
+import { getStudentsByTutorQueryOptions } from '#/features/tutors/queries'
 import { ActionIcon, EmptyState, Group, Table } from '@mantine/core'
 import type { Student } from '../types'
 import { useQuery } from '@tanstack/react-query'
-import { getStudentsQueryOptions } from '../queries'
 import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { NotePencilIcon, TrashIcon } from '@phosphor-icons/react/dist/ssr'
 
 export interface StudentListProps {
+  tutorId: number
   onEdit?: (student: Student) => void
   onDelete?: (student: Student) => void
 }
 
-export function StudentList({ onEdit, onDelete }: StudentListProps) {
-  const { data: students, isPending } = useQuery(getStudentsQueryOptions())
+export function StudentList({ tutorId, onEdit, onDelete }: StudentListProps) {
+  const { data: students, isPending } = useQuery(
+    getStudentsByTutorQueryOptions(tutorId),
+  )
   const colN = 3
 
   let tBody = (

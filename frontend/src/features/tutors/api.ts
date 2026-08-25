@@ -1,3 +1,4 @@
+import type { Student } from '#/features/students/types'
 import { apiFetch, post, put } from '#/lib/api'
 import type { CreateTutorRequest, Tutor, UpdateTutorRequest } from './types'
 
@@ -11,6 +12,10 @@ export function getTutorById(id: number): Promise<Tutor> {
 
 export function getMyTutorProfile(): Promise<Tutor> {
   return apiFetch('/tutors/me')
+}
+
+export function getStudentsByTutor(tutorId: number): Promise<Student[]> {
+  return apiFetch(`/tutors/${tutorId}/students`)
 }
 
 export function createTutor(tutor: CreateTutorRequest): Promise<Tutor> {

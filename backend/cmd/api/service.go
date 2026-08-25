@@ -3,6 +3,8 @@ package main
 import (
 	"github.com/bramba2000/mrtutor/backend/features/auth"
 	"github.com/bramba2000/mrtutor/backend/features/auth/authsqlite"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments/enrollmentssqlite"
 	"github.com/bramba2000/mrtutor/backend/features/students"
 	"github.com/bramba2000/mrtutor/backend/features/students/studentssqlite"
 	"github.com/bramba2000/mrtutor/backend/features/tutors"
@@ -11,9 +13,10 @@ import (
 )
 
 type Services struct {
-	Auth     auth.Service
-	Students students.Service
-	Tutors   tutors.Service
+	Auth        auth.Service
+	Students    students.Service
+	Tutors      tutors.Service
+	Enrollments enrollments.Service
 }
 
 func createServices(db *sqlite.DB) Services {
@@ -26,9 +29,13 @@ func createServices(db *sqlite.DB) Services {
 	tutorsStorage := tutorssqlite.NewRepository(db)
 	tutors := tutors.NewService(tutorsStorage)
 
+	enrollmentsStorage := enrollmentssqlite.NewRepository(db)
+	enrollments := enrollments.NewService(enrollmentsStorage)
+
 	return Services{
-		Auth:     auth,
-		Students: students,
-		Tutors:   tutors,
+		Auth:        auth,
+		Students:    students,
+		Tutors:      tutors,
+		Enrollments: enrollments,
 	}
 }

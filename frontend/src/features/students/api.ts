@@ -5,10 +5,6 @@ import type {
   UpdateStudentRequest,
 } from './types'
 
-export function getStudents(): Promise<Student[]> {
-  return apiFetch('/students/')
-}
-
 export function getStudentById(id: number): Promise<Student> {
   return apiFetch(`/students/${id}`)
 }

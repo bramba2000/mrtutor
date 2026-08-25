@@ -10,6 +10,8 @@ export const tutorsKeys = {
   list: () => [...tutorsKeys.all, 'list'] as const,
   byId: (id: number) => [...tutorsKeys.all, 'byId', id] as const,
   me: () => [...tutorsKeys.all, 'me'] as const,
+  students: (id: number) =>
+    [...tutorsKeys.all, 'byId', id, 'students'] as const,
 }
 
 export function getTutorsQueryOptions() {
@@ -32,6 +34,14 @@ export function getMyTutorProfileQueryOptions() {
   return queryOptions({
     queryKey: tutorsKeys.me(),
     queryFn: tutorsApi.getMyTutorProfile,
+    retry: false,
+  })
+}
+
+export function getStudentsByTutorQueryOptions(tutorId: number) {
+  return queryOptions({
+    queryKey: tutorsKeys.students(tutorId),
+    queryFn: () => tutorsApi.getStudentsByTutor(tutorId),
     retry: false,
   })
 }

@@ -1,22 +1,18 @@
 import {
+  getMyTutorProfileQueryOptions,
+  getStudentsByTutorQueryOptions,
+} from '#/features/tutors/queries'
+import {
   queryOptions,
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query'
 import * as studentsApi from './api'
+import type { Student } from './types'
 
 export const studentsKeys = {
   all: ['students'] as const,
-  list: () => [...studentsKeys.all, 'list'] as const,
   byId: (id: number) => [...studentsKeys.all, 'byId', id] as const,
-}
-
-export function getStudentsQueryOptions() {
-  return queryOptions({
-    queryKey: studentsKeys.list(),
-    queryFn: studentsApi.getStudents,
-    retry: false,
-  })
 }
 
 export function getStudentByIdQueryOptions(id: number) {
@@ -51,6 +47,23 @@ export function getStudentClassesQueryOptions() {
   })
 }
 
+// patchCurrentTutorStudentsList updates the signed-in tutor's cached student
+// list, if it's cached, since the backend always enrolls a created/updated
+// student with the signed-in tutor.
+function patchCurrentTutorStudentsList(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updater: (students: Student[]) => Student[],
+) {
+  const tutor = queryClient.getQueryData(
+    getMyTutorProfileQueryOptions().queryKey,
+  )
+  if (!tutor) return
+  queryClient.setQueryData(
+    getStudentsByTutorQueryOptions(tutor.id).queryKey,
+    (oldData) => (oldData ? updater(oldData) : oldData),
+  )
+}
+
 export function useCreateStudentMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -61,16 +74,11 @@ export function useCreateStudentMutation() {
         getStudentByIdQueryOptions(data.id).queryKey,
         data,
       )
-      // update the students list query to include the new student
-      queryClient.setQueryData(
-        getStudentsQueryOptions().queryKey,
-        (oldData) => {
-          if (oldData) {
-            return [...oldData, data]
-          }
-          return [data]
-        },
-      )
+      // update the signed-in tutor's student list to include the new student
+      patchCurrentTutorStudentsList(queryClient, (students) => [
+        ...students,
+        data,
+      ])
       invalidateSuggestionQueries(queryClient)
     },
   })
@@ -99,9 +107,9 @@ export function useDeleteStudentMutation() {
       queryClient.removeQueries({
         queryKey: getStudentByIdQueryOptions(id).queryKey,
       })
-      // remove the deleted student from the students list query
-      queryClient.setQueryData(getStudentsQueryOptions().queryKey, (oldData) =>
-        oldData?.filter((student) => student.id !== id),
+      // remove the deleted student from the signed-in tutor's student list
+      patchCurrentTutorStudentsList(queryClient, (students) =>
+        students.filter((student) => student.id !== id),
       )
     },
   })
@@ -117,15 +125,9 @@ export function useUpdateStudentMutation() {
         getStudentByIdQueryOptions(data.id).queryKey,
         data,
       )
-      // update the students list query to include the updated student
-      queryClient.setQueryData(
-        getStudentsQueryOptions().queryKey,
-        (oldData) => {
-          if (!oldData) return [data]
-          return oldData.map((student) =>
-            student.id === data.id ? data : student,
-          )
-        },
+      // update the signed-in tutor's student list with the updated student
+      patchCurrentTutorStudentsList(queryClient, (students) =>
+        students.map((student) => (student.id === data.id ? data : student)),
       )
       invalidateSuggestionQueries(queryClient)
     },

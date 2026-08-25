@@ -13,8 +13,10 @@ import (
 	"testing"
 
 	"github.com/bramba2000/mrtutor/backend/features/auth"
+	"github.com/bramba2000/mrtutor/backend/features/enrollments"
 	"github.com/bramba2000/mrtutor/backend/features/students"
 	"github.com/bramba2000/mrtutor/backend/features/students/studentshttp"
+	"github.com/bramba2000/mrtutor/backend/features/tutors"
 	"github.com/bramba2000/mrtutor/backend/httpx"
 )
 
@@ -100,6 +102,49 @@ var (
 	_ httpx.Validable      = students.UpdateIn{}
 )
 
+// fakeTutorsService implements [studentshttp.TutorsService]. Its default
+// GetByUserID resolves any user to tutor id 42, so tests that don't care
+// about the tutor-linking side effect don't need to configure it.
+type fakeTutorsService struct {
+	getByUserIDFn func(context.Context, int) (tutors.Tutor, error)
+
+	getByUserIDCalled bool
+	gotGetByUserID    int
+}
+
+func (f *fakeTutorsService) GetByUserID(ctx context.Context, userID int) (tutors.Tutor, error) {
+	f.getByUserIDCalled = true
+	f.gotGetByUserID = userID
+	if f.getByUserIDFn != nil {
+		return f.getByUserIDFn(ctx, userID)
+	}
+	return tutors.Tutor{ID: 42, UserID: userID}, nil
+}
+
+// fakeEnrollmentsService implements [studentshttp.EnrollmentsService].
+type fakeEnrollmentsService struct {
+	linkFn func(context.Context, int, int) (enrollments.Enrollment, error)
+
+	linkCalled       bool
+	gotLinkTutorID   int
+	gotLinkStudentID int
+}
+
+func (f *fakeEnrollmentsService) Link(ctx context.Context, tutorID, studentID int) (enrollments.Enrollment, error) {
+	f.linkCalled = true
+	f.gotLinkTutorID = tutorID
+	f.gotLinkStudentID = studentID
+	if f.linkFn != nil {
+		return f.linkFn(ctx, tutorID, studentID)
+	}
+	return enrollments.Enrollment{TutorID: tutorID, StudentID: studentID}, nil
+}
+
+var (
+	_ studentshttp.TutorsService      = (*fakeTutorsService)(nil)
+	_ studentshttp.EnrollmentsService = (*fakeEnrollmentsService)(nil)
+)
+
 // fakeAuthenticator implements [authhttp.Authenticator] without a database.
 type fakeAuthenticator struct{}
 
@@ -138,9 +183,14 @@ func authed(req *http.Request) *http.Request {
 
 func mounted(t *testing.T, svc studentshttp.Service) *httpx.Router {
 	t.Helper()
+	return mountedWithDeps(t, svc, &fakeTutorsService{}, &fakeEnrollmentsService{})
+}
+
+func mountedWithDeps(t *testing.T, svc studentshttp.Service, tutorsSvc studentshttp.TutorsService, enrollmentsSvc studentshttp.EnrollmentsService) *httpx.Router {
+	t.Helper()
 	r := httpx.NewRouter("")
 	l := slog.New(slog.NewTextHandler(t.Output(), nil))
-	studentshttp.NewHandler(svc, fakeAuthenticator{}, l).Mount(r)
+	studentshttp.NewHandler(svc, tutorsSvc, enrollmentsSvc, fakeAuthenticator{}, l).Mount(r)
 	return r
 }
 
@@ -398,6 +448,55 @@ func TestCreate(t *testing.T) {
 		}
 	})
 
+	t.Run("Success enrolls the student with the signed-in tutor", func(t *testing.T) {
+		svc := &fakeService{
+			createFn: func(ctx context.Context, in students.CreateIn) (students.Student, error) {
+				return students.Student{ID: 1, DisplayName: in.DisplayName}, nil
+			},
+		}
+		tutorsSvc := &fakeTutorsService{}
+		enrollmentsSvc := &fakeEnrollmentsService{}
+		h := mountedWithDeps(t, svc, tutorsSvc, enrollmentsSvc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPost, "/students/", students.CreateIn{DisplayName: "John"})))
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
+		}
+		if tutorsSvc.gotGetByUserID != 1 {
+			t.Errorf("expected the authenticated user's id (1) to reach the tutors service, got %d", tutorsSvc.gotGetByUserID)
+		}
+		if enrollmentsSvc.gotLinkTutorID != 42 || enrollmentsSvc.gotLinkStudentID != 1 {
+			t.Errorf("expected the enrollment to link tutor 42 and student 1, got (%d, %d)", enrollmentsSvc.gotLinkTutorID, enrollmentsSvc.gotLinkStudentID)
+		}
+	})
+
+	t.Run("Fail when the signed-in user has no tutor profile", func(t *testing.T) {
+		svc := &fakeService{
+			createFn: func(ctx context.Context, in students.CreateIn) (students.Student, error) {
+				return students.Student{ID: 1, DisplayName: in.DisplayName}, nil
+			},
+		}
+		tutorsSvc := &fakeTutorsService{
+			getByUserIDFn: func(context.Context, int) (tutors.Tutor, error) {
+				return tutors.Tutor{}, tutors.ErrNotFound
+			},
+		}
+		enrollmentsSvc := &fakeEnrollmentsService{}
+		h := mountedWithDeps(t, svc, tutorsSvc, enrollmentsSvc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPost, "/students/", students.CreateIn{DisplayName: "John"})))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusNotFound, w.Code, w.Body.String())
+		}
+		if enrollmentsSvc.linkCalled {
+			t.Error("expected the enrollments service not to be called when the tutor cannot be resolved")
+		}
+	})
+
 	t.Run("Fail when the display name is blank", func(t *testing.T) {
 		svc := &fakeService{}
 		h := mounted(t, svc)
@@ -487,6 +586,30 @@ func TestUpdate(t *testing.T) {
 		}
 		if svc.gotUpdate.ID != 7 {
 			t.Errorf("expected the path id (7) to override the body id (999), got %d", svc.gotUpdate.ID)
+		}
+	})
+
+	t.Run("Success enrolls the updated student with the signed-in tutor", func(t *testing.T) {
+		svc := &fakeService{
+			updateFn: func(ctx context.Context, in students.UpdateIn) (students.Student, error) {
+				return students.Student{ID: in.ID, DisplayName: in.DisplayName}, nil
+			},
+		}
+		tutorsSvc := &fakeTutorsService{}
+		enrollmentsSvc := &fakeEnrollmentsService{}
+		h := mountedWithDeps(t, svc, tutorsSvc, enrollmentsSvc)
+
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, authed(newJSONRequest(http.MethodPut, "/students/7", students.UpdateIn{DisplayName: "John"})))
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+		if tutorsSvc.gotGetByUserID != 1 {
+			t.Errorf("expected the authenticated user's id (1) to reach the tutors service, got %d", tutorsSvc.gotGetByUserID)
+		}
+		if enrollmentsSvc.gotLinkTutorID != 42 || enrollmentsSvc.gotLinkStudentID != 7 {
+			t.Errorf("expected the enrollment to link tutor 42 and student 7, got (%d, %d)", enrollmentsSvc.gotLinkTutorID, enrollmentsSvc.gotLinkStudentID)
 		}
 	})
 
