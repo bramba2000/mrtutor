@@ -3,13 +3,27 @@ import { StudentDialog } from '#/features/students/components/StudentDialog'
 import { StudentList } from '#/features/students/components/StudentList'
 import { useDeleteStudentMutation } from '#/features/students/queries'
 import type { Student } from '#/features/students/types'
+import { getMyTutorProfileQueryOptions } from '#/features/tutors/queries'
+import { ApiError } from '#/lib/api'
 import { Box, Breadcrumbs, Button, Group, Text } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { PlusIcon } from '@phosphor-icons/react/dist/ssr'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useState } from 'react'
 
-export const Route = createFileRoute('/_authenticated/')({ component: Home })
+export const Route = createFileRoute('/_authenticated/')({
+  loader: async ({ context }) => {
+    try {
+      await context.queryClient.ensureQueryData(getMyTutorProfileQueryOptions())
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return redirect({ to: '/tutors/profile' })
+      }
+      throw error
+    }
+  },
+  component: Home,
+})
 
 function Home() {
   const [dialogOpened, { open: openDialog, close: closeDialog }] =

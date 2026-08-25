@@ -3,6 +3,7 @@ import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { LogoutButton } from '#/features/auth/components/LogoutButton'
 import { meQueryOptions } from '#/features/auth/queries'
 import { ApiError, UNAUTHENTICATED_CODE } from '#/lib/api'
+import { TutorProfileButton } from '#/features/tutors/components/TutorProfileButton'
 
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ context, location }) => {
@@ -29,6 +30,7 @@ function RouteComponent() {
       >
         <AppShell.Header>
           <Group justify="flex-end" h="100%" px="md">
+            <TutorProfileButton />
             <LogoutButton />
           </Group>
         </AppShell.Header>

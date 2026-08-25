@@ -43,6 +43,8 @@ export function useCreateTutorMutation() {
     onSuccess: (data) => {
       // set the createTutor data in the cache for the specific tutor by id
       queryClient.setQueryData(getTutorByIdQueryOptions(data.id).queryKey, data)
+      // the caller is always the owner of the tutor they just created
+      queryClient.setQueryData(getMyTutorProfileQueryOptions().queryKey, data)
       // update the tutors list query to include the new tutor
       queryClient.setQueryData(getTutorsQueryOptions().queryKey, (oldData) => {
         if (oldData) {
