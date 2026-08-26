@@ -9,12 +9,13 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core'
-import { useForm } from '@tanstack/react-form'
+import { revalidateLogic, useForm } from '@tanstack/react-form'
 import { useNavigate } from '@tanstack/react-router'
 import * as v from 'valibot'
 import { phoneMask } from '#/lib/phone'
 import type { CreateTutorRequest, Tutor } from '../types'
 import { useCreateTutorMutation, useUpdateTutorMutation } from '../queries'
+import { fieldError } from '#/lib/valibot_utils'
 
 export interface TutorProfileFormProps {
   data?: Tutor
@@ -52,6 +53,7 @@ export function TutorProfileForm({ data }: TutorProfileFormProps) {
 
   const { Field, handleSubmit, Subscribe } = useForm({
     defaultValues: data ?? emptyTutorData,
+    validationLogic: revalidateLogic(),
     validators: {
       onDynamic: tutorSchema,
     },
@@ -82,7 +84,7 @@ export function TutorProfileForm({ data }: TutorProfileFormProps) {
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.currentTarget.value)}
-                    error={field.state.meta.errors.join(', ')}
+                    error={fieldError(field.state.meta.errors)}
                   />
                 )}
               />
@@ -99,7 +101,7 @@ export function TutorProfileForm({ data }: TutorProfileFormProps) {
                     defaultValue={field.state.value}
                     onBlur={field.handleBlur}
                     onChangeRaw={(raw) => field.handleChange('+' + raw)}
-                    error={field.state.meta.errors.join(', ')}
+                    error={fieldError(field.state.meta.errors)}
                   />
                 )}
               />
@@ -121,7 +123,7 @@ export function TutorProfileForm({ data }: TutorProfileFormProps) {
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.currentTarget.value)}
-                  error={field.state.meta.errors.join(', ')}
+                  error={fieldError(field.state.meta.errors)}
                 />
               )}
             />

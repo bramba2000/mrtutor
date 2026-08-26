@@ -7,7 +7,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import type { CreateStudentRequest, UpdateStudentRequest } from '../types'
-import { useForm } from '@tanstack/react-form'
+import { revalidateLogic, useForm } from '@tanstack/react-form'
 import { useQuery } from '@tanstack/react-query'
 import * as v from 'valibot'
 import { phoneMask } from '#/lib/phone'
@@ -18,6 +18,7 @@ import {
   useCreateStudentMutation,
   useUpdateStudentMutation,
 } from '../queries'
+import { fieldError } from '#/lib/valibot_utils'
 
 type StudentUpsertData = CreateStudentRequest | UpdateStudentRequest
 
@@ -32,10 +33,10 @@ const emptyStudentData: StudentUpsertData = {
 }
 
 const studentSchema = v.object({
-  displayName: v.pipe(v.string(), v.maxLength(256)),
-  email: v.pipe(v.string(), v.maxLength(256), v.email()),
+  displayName: v.pipe(v.string(), v.nonEmpty(), v.maxLength(256)),
+  email: v.pipe(v.string(), v.nonEmpty(), v.maxLength(256), v.email()),
   phone: v.pipe(v.string(), v.maxLength(16), v.minLength(11)),
-  birthDate: v.string(),
+  birthDate: v.pipe(v.string(), v.isoDate()),
   class: v.pipe(v.string(), v.maxLength(256)),
   school: v.pipe(v.string(), v.maxLength(256)),
   studyProgram: v.pipe(v.string(), v.maxLength(256)),
@@ -71,6 +72,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
 
   const { Field, handleSubmit, Subscribe } = useForm({
     defaultValues: data,
+    validationLogic: revalidateLogic(),
     validators: {
       onDynamic: studentSchema,
     },
@@ -95,7 +97,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.currentTarget.value)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
@@ -107,7 +109,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.currentTarget.value)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
@@ -123,7 +125,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 defaultValue={field.state.value}
                 onBlur={field.handleBlur}
                 onChangeRaw={(raw) => field.handleChange('+' + raw)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
@@ -136,7 +138,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(value) => field.handleChange(value)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
@@ -149,7 +151,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(value) => field.handleChange(value)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
@@ -162,7 +164,7 @@ export function StudentDialog({ opened, close, data }: StudentDialogProps) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(value) => field.handleChange(value)}
-                error={field.state.meta.errors.join(', ')}
+                error={fieldError(field.state.meta.errors)}
               />
             )}
           />
