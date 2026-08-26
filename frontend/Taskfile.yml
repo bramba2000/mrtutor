@@ -1,0 +1,30 @@
+# # yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  dev:
+    desc: 'Run the Vite dev server'
+    dir: frontend
+    cmds:
+      - bun --bun run dev
+    silent: true
+
+  build:
+    cmds:
+      - bun run build
+    silent: true
+
+  lint:
+    desc: 'Lint the frontend'
+    dir: frontend
+    cmds:
+      - bun run lint
+    silent: true
+
+  check:
+    desc: 'Check frontend formatting'
+    dir: frontend
+    cmds:
+      - bun run check
+    silent: true

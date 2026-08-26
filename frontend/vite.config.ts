@@ -19,11 +19,7 @@ const config = defineConfig({
   server: { port: 3000, proxy: { '/api': { target: backend } } },
   preview: { port: 3000, proxy: { '/api': { target: backend } } },
   build: {
-    // Feeds backend/web's //go:embed. emptyOutDir stays false so the
-    // committed dist/.gitkeep placeholder survives the build — see
-    // backend/web/embed.go.
-    outDir: '../backend/web/dist',
-    emptyOutDir: false,
+    outDir: './dist',
   },
   css: {
     postcss: {

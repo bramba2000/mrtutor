@@ -1,81 +1,51 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 
-version: '3'
+version: "3"
 
 includes:
-  backend:
-    taskfile: ./backend
-    dir: ./backend
+    backend:
+        taskfile: ./backend
+        dir: ./backend
+    frontend:
+        taskfile: ./frontend
+        dir: ./frontend
 
 tasks:
-  install:
-    desc: "Install frontend dependencies"
-    dir: frontend
-    cmds:
-      - bun install
-    silent: true
+    install:
+        desc: "Install frontend dependencies"
+        dir: frontend
+        cmds:
+            - bun install
+        silent: true
 
-  dev:
-    desc: "Run the backend and the Vite dev server concurrently (backend :8080, frontend :3000, proxied)"
-    deps:
-      - backend:run
-      - frontend:dev
-    silent: true
+    dev:
+        desc: "Run the backend and the Vite dev server concurrently (backend :8080, frontend :3000, proxied)"
+        deps:
+            - backend:run
+            - frontend:dev
+        silent: true
 
-  frontend:dev:
-    desc: "Run the Vite dev server"
-    dir: frontend
-    cmds:
-      - bun --bun run dev
-    silent: true
+    frontend:embed:
+        desc: "Build the frontend and embed it into the backend"
+        cmds:
+            - task: frontend:build
+            - rm -rf ./backend/web/dist
+            - mv ./frontend/dist ./backend/web/dist
+            - touch ./backend/web/dist/.gitkeep
+        silent: true
+        internal: true
 
-  frontend:build:
-    desc: "Build the frontend into backend/web/dist, ready for go:embed"
-    cmds:
-      # Compensates for vite.config.ts's emptyOutDir: false — without this,
-      # stale content-hashed assets from earlier builds would accumulate
-      # inside the embedded binary instead of being replaced.
-      - rm -rf backend/web/dist
-      - task: frontend:build:vite
-      # vite build recreates dist/, but .gitkeep is what keeps
-      # backend/web/embed.go's //go:embed directive compiling when dist/ is
-      # otherwise empty (e.g. right after this rm -rf, before the next build).
-      - mkdir -p backend/web/dist
-      - touch backend/web/dist/.gitkeep
-    silent: true
+    build:
+        desc: "Build the frontend, embed it, and build the Go binary — the single deployable artifact"
+        cmds:
+            - task: frontend:build
+            - task: backend:build
+        silent: true
 
-  frontend:build:vite:
-    internal: true
-    dir: frontend
-    cmds:
-      - bun run build
-    silent: true
-
-  frontend:lint:
-    desc: "Lint the frontend"
-    dir: frontend
-    cmds:
-      - bun run lint
-    silent: true
-
-  frontend:check:
-    desc: "Check frontend formatting"
-    dir: frontend
-    cmds:
-      - bun run check
-    silent: true
-
-  build:
-    desc: "Build the frontend, embed it, and build the Go binary — the single deployable artifact"
-    cmds:
-      - task: frontend:build
-      - task: backend:build
-    silent: true
-
-  verify:
-    desc: "Pre-release check: frontend lint/format, then the backend's vet+build+race test suite"
-    cmds:
-      - task: frontend:lint
-      - task: frontend:check
-      - task: backend:verify
-    silent: true
+    verify:
+        desc: "Pre-release check: frontend lint/format, then the backend's vet+build+race test suite"
+        cmds:
+            - task: frontend:lint
+            - task: frontend:check
+            - task: backend:verify
+        silent: true
